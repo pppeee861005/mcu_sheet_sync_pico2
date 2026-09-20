@@ -22,6 +22,9 @@ FRAME_MS = 50
 SCORE_INTERVAL_MS = 1000
 CACTUS_WIDTH = 6
 CACTUS_HEIGHT = 10
+BASE_CACTUS_SPEED = 2
+MAX_CACTUS_SPEED = 5
+SPEED_UP_SCORE = 10
 
 
 i2c = I2C(0, scl=Pin(SCL_PIN), sda=Pin(SDA_PIN), freq=400000)
@@ -38,6 +41,7 @@ cactus_x = WIDTH + 10
 cactus_y = GROUND_Y - CACTUS_HEIGHT
 game_over = False
 score = 0
+high_score = 0
 score_time_ms = 0
 
 
@@ -64,10 +68,11 @@ def draw_game():
     if cactus_x < WIDTH:
         draw_cactus(cactus_x, cactus_y)
     if game_over:
-        oled.fill_rect(22, 20, 84, 24, 0)
-        oled.rect(22, 20, 84, 24, 1)
-        oled.text("GAME OVER", 32, 25)
-        oled.text("PRESS JUMP", 28, 35)
+        oled.fill_rect(16, 16, 96, 32, 0)
+        oled.rect(16, 16, 96, 32, 1)
+        oled.text("GAME OVER", 25, 21)
+        oled.text("BEST: {}".format(high_score), 28, 31)
+        oled.text("PRESS JUMP", 22, 40)
     oled.show()
 
 
@@ -94,12 +99,16 @@ def update_physics():
 
 
 def update_cactus():
-    global cactus_x, game_over, score
+    global cactus_x, game_over, score, high_score
     if game_over:
         return
-    cactus_x -= 2
+    cactus_speed = min(MAX_CACTUS_SPEED,
+                       BASE_CACTUS_SPEED + score // SPEED_UP_SCORE)
+    cactus_x -= cactus_speed
     if cactus_x < -CACTUS_WIDTH:
         score += 1
+        if score > high_score:
+            high_score = score
         cactus_x = WIDTH + random.randint(15, 45)
 
     dino_left = dino_x
@@ -113,7 +122,7 @@ def update_cactus():
 
 
 def update_score():
-    global score, score_time_ms
+    global score, score_time_ms, high_score
     if game_over:
         return
 
@@ -121,6 +130,8 @@ def update_score():
     if score_time_ms >= SCORE_INTERVAL_MS:
         score += score_time_ms // SCORE_INTERVAL_MS
         score_time_ms %= SCORE_INTERVAL_MS
+        if score > high_score:
+            high_score = score
 
 
 oled.fill(0)
