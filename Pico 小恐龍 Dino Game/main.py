@@ -19,6 +19,7 @@ GROUND_Y = 63
 JUMP_POWER = -8
 GRAVITY = 1
 FRAME_MS = 50
+SCORE_INTERVAL_MS = 1000
 CACTUS_WIDTH = 6
 CACTUS_HEIGHT = 10
 
@@ -36,6 +37,8 @@ last_button = 1
 cactus_x = WIDTH + 10
 cactus_y = GROUND_Y - CACTUS_HEIGHT
 game_over = False
+score = 0
+score_time_ms = 0
 
 
 def draw_dino(x, y):
@@ -55,6 +58,7 @@ def draw_cactus(x, y):
 
 def draw_game():
     oled.fill(0)
+    oled.text("SCORE: {}".format(score), 0, 0)
     oled.hline(0, GROUND_Y, WIDTH, 1)
     draw_dino(dino_x, int(dino_y))
     if cactus_x < WIDTH:
@@ -90,11 +94,12 @@ def update_physics():
 
 
 def update_cactus():
-    global cactus_x, game_over
+    global cactus_x, game_over, score
     if game_over:
         return
     cactus_x -= 2
     if cactus_x < -CACTUS_WIDTH:
+        score += 1
         cactus_x = WIDTH + random.randint(15, 45)
 
     dino_left = dino_x
@@ -105,6 +110,17 @@ def update_cactus():
     if (dino_right > cactus_x and dino_left < cactus_right
             and dino_bottom > cactus_y and dino_top < GROUND_Y):
         game_over = True
+
+
+def update_score():
+    global score, score_time_ms
+    if game_over:
+        return
+
+    score_time_ms += FRAME_MS
+    if score_time_ms >= SCORE_INTERVAL_MS:
+        score += score_time_ms // SCORE_INTERVAL_MS
+        score_time_ms %= SCORE_INTERVAL_MS
 
 
 oled.fill(0)
@@ -124,11 +140,14 @@ while True:
             dino_y = GROUND_Y - 12
             velocity_y = 0
             is_jumping = False
+            score = 0
+            score_time_ms = 0
         else:
             start_jump()
 
     last_button = current_button
     update_physics()
     update_cactus()
+    update_score()
     draw_game()
     sleep_ms(FRAME_MS)
