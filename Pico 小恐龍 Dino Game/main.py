@@ -4,7 +4,7 @@ import ssd1306
 import random
 
 
-# ESP32 常見接線
+# ESP32-S3 DevKitC-1 接線
 # OLED SDA -> GPIO 21，SCL -> GPIO 22
 # 按鈕一端 -> GPIO 18，另一端 -> GND
 SDA_PIN = 21
