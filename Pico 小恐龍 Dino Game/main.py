@@ -16,7 +16,7 @@ HEIGHT = 64
 GROUND_Y = 63
 
 # 跳躍物理參數
-JUMP_POWER = -8
+JUMP_POWER = -7
 GRAVITY = 1
 FRAME_MS = 50
 SCORE_INTERVAL_MS = 1000
@@ -24,7 +24,9 @@ CACTUS_WIDTH = 6
 CACTUS_HEIGHT = 10
 BASE_CACTUS_SPEED = 2
 MAX_CACTUS_SPEED = 5
-SPEED_UP_SCORE = 10
+SPEED_UP_SCORE = 8
+MIN_CACTUS_GAP = 25
+MAX_CACTUS_GAP = 55
 
 
 i2c = I2C(0, scl=Pin(SCL_PIN), sda=Pin(SDA_PIN), freq=400000)
@@ -72,7 +74,7 @@ def draw_game():
         oled.rect(16, 16, 96, 32, 1)
         oled.text("GAME OVER", 25, 21)
         oled.text("BEST: {}".format(high_score), 28, 31)
-        oled.text("PRESS JUMP", 22, 40)
+        oled.text("BUTTON: RESTART", 16, 40)
     oled.show()
 
 
@@ -109,7 +111,8 @@ def update_cactus():
         score += 1
         if score > high_score:
             high_score = score
-        cactus_x = WIDTH + random.randint(15, 45)
+        cactus_gap = random.randint(MIN_CACTUS_GAP, MAX_CACTUS_GAP)
+        cactus_x = WIDTH + cactus_gap
 
     dino_left = dino_x
     dino_right = dino_x + 12
@@ -136,7 +139,8 @@ def update_score():
 
 oled.fill(0)
 oled.text("ESP32 DINO", 22, 10)
-oled.text("PRESS TO JUMP", 8, 28)
+oled.text("BUTTON: JUMP", 16, 28)
+oled.text("AVOID CACTUS!", 10, 40)
 oled.show()
 sleep_ms(1200)
 
