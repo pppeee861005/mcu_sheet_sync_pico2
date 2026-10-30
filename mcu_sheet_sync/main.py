@@ -1,25 +1,38 @@
 # -*- coding: utf-8 -*-
 """
-天氣/環境狀態切換介面 (Weather State Toggle UI)
-硬體配置：
-  - ESP32-S3 DevKitC-1
-  - 0.96" OLED (SSD1306, I2C: SDA=GPIO21, SCL=GPIO22, 128x64)
-  - 實體按鍵 (GPIO 18, 內部上拉，按下為 LOW)
+天氣/災害狀態監測儀與 Google 試算表即時同步 (MCU Sheet Sync)
+主控硬體：ESP32-S3 DevKitC-1
+顯示器：0.96" OLED (SSD1306, I2C: SDA=GPIO21, SCL=GPIO22, 128x64)
+按鍵輸入：GPIO 18 (內部上拉，按下為 LOW)
 
-功能：
-  - 開機初始化 OLED 顯示。
-  - 按下 GPIO 18 按鈕，輪流切換狀態：
-      1. 晴天 (SUNNY)
-      2. 大雨 (HEAVY RAIN)
-      3. 淹水 (FLOOD ALERT!)
-  - 介面包含視覺框線、狀態圖標效果與切換計數。
+互動邏輯：
+  1. 開機自動連線 Wi-Fi（優先家用 egg5630，失敗切換手機熱點 Redmi 13C），螢幕即時顯示連線進度與 IP。
+  2. 進入天氣監控介面，按一下 GPIO 18 按鍵切換狀態：
+     - 晴天 (SUNNY)
+     - 大雨 (HEAVY RAIN)
+     - 淹水 (FLOOD ALERT!)
+  3. 切換後自動觸發 HTTP POST 將目前狀態、事件類型、累計切換次數上報至 Google Sheet 試算表。
+  4. 螢幕即時顯示「Uploading...」與「Sheet Synced!」回饋。
 """
 
 import time
+import network
+import ujson
+import urequests
 from machine import Pin, I2C
 from ssd1306 import SSD1306_I2C
 
-# ================= 腳位定義 =================
+# ================= 雲端 API 設定 =================
+GAS_URL = "https://script.google.com/macros/s/AKfycbw6F6gMmvDDCKAxcPpT4eOytjWheP-GxugEgJDWjyHApgYF2VimZqu7JYhPkAIzMh_D/exec"
+DEVICE_NAME = "ESP32-S3_Weather"
+
+# ================= Wi-Fi 熱點設定 =================
+WIFI_CONFIGS = [
+    {"ssid": "egg5630", "pass": "27985630"},          # 優先家用 Wi-Fi
+    {"ssid": "Redmi 13C", "pass": "chdmchkcrdfd7e8"}   # 備援手機熱點
+]
+
+# ================= 硬體腳位定義 =================
 I2C_SDA_PIN = 21
 I2C_SCL_PIN = 22
 BUTTON_PIN = 18
@@ -34,21 +47,24 @@ WEATHER_STATES = [
         "title": "[ SUNNY / Sunny ]",
         "icon_type": "sun",
         "desc": "Weather is clear",
-        "alert": "Condition: Normal"
+        "alert": "Condition: Normal",
+        "message": "天氣晴朗，環境狀況一切正常"
     },
     {
         "id": "RAIN",
         "title": "[ HEAVY RAIN ]",
         "icon_type": "rain",
         "desc": "Rain: > 50 mm/hr",
-        "alert": "Drive with care!"
+        "alert": "Drive with care!",
+        "message": "豪大雨特報，局部降雨顯著"
     },
     {
         "id": "FLOOD",
         "title": "[ FLOOD ALERT! ]",
         "icon_type": "flood",
         "desc": "Water Level: HIGH",
-        "alert": "** DANGER WARNING **"
+        "alert": "** DANGER WARNING **",
+        "message": "⚠️ 淹水警報發布！水位超出警戒值"
     }
 ]
 
@@ -56,105 +72,196 @@ WEATHER_STATES = [
 print("Initializing I2C and OLED...")
 i2c = I2C(0, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN), freq=400000)
 oled = SSD1306_I2C(OLED_WIDTH, OLED_HEIGHT, i2c)
-
-# 按鍵輸入（內部上拉）
 btn = Pin(BUTTON_PIN, Pin.IN, Pin.PULL_UP)
 
 current_index = 0
 switch_count = 0
+current_ip = "Offline"
 
 def draw_icon(icon_type):
     """在右側 (x: 96~124, y: 16~44) 繪製天氣圖標視覺效果"""
     cx, cy = 110, 30
     if icon_type == "sun":
-        # 繪製太陽中心方塊與向外發射光芒
         oled.fill_rect(cx - 5, cy - 5, 11, 11, 1)
-        # 上下左右光芒
         oled.line(cx, cy - 9, cx, cy - 6, 1)
         oled.line(cx, cy + 6, cx, cy + 9, 1)
         oled.line(cx - 9, cy, cx - 6, cy, 1)
-        oled.line(cx + 6, cy, cx + 9, cy, 1)
-        # 斜角光芒
+        oled.line(cx + 6, cy + 9, cx + 9, cy, 1)
         oled.line(cx - 7, cy - 7, cx - 5, cy - 5, 1)
         oled.line(cx + 5, cy + 5, cx + 7, cy + 7, 1)
         oled.line(cx - 7, cy + 7, cx - 5, cy + 5, 1)
         oled.line(cx + 5, cy - 5, cx + 7, cy - 7, 1)
 
     elif icon_type == "rain":
-        # 繪製雲朵輪廓 + 雨滴斜線
         oled.fill_rect(cx - 10, cy - 8, 20, 8, 1)
         oled.fill_rect(cx - 6, cy - 12, 12, 5, 1)
-        # 雨滴
         oled.line(cx - 8, cy + 3, cx - 11, cy + 9, 1)
         oled.line(cx - 2, cy + 3, cx - 5, cy + 9, 1)
         oled.line(cx + 4, cy + 3, cx + 1, cy + 9, 1)
         oled.line(cx + 9, cy + 3, cx + 6, cy + 9, 1)
 
     elif icon_type == "flood":
-        # 繪製警告三角形外框與驚嘆號 + 水位波浪
         oled.line(cx, cy - 12, cx - 10, cy + 3, 1)
         oled.line(cx, cy - 12, cx + 10, cy + 3, 1)
         oled.line(cx - 10, cy + 3, cx + 10, cy + 3, 1)
-        # 驚嘆號
         oled.line(cx, cy - 7, cx, cy - 2, 1)
         oled.pixel(cx, cy + 1, 1)
-        # 底部水波線
         oled.line(cx - 12, cy + 8, cx - 6, cy + 6, 1)
         oled.line(cx - 6, cy + 6, cx, cy + 8, 1)
         oled.line(cx, cy + 8, cx + 6, cy + 6, 1)
         oled.line(cx + 6, cy + 6, cx + 12, cy + 8, 1)
 
-def render_ui(state, count):
+def render_ui(state, count, status_msg=None):
     """繪製完整 UI 介面到 OLED"""
     oled.fill(0)
     
-    # 頂部狀態標題列
+    # 頂部狀態標題列（反白字體）
     oled.fill_rect(0, 0, 128, 13, 1)
-    oled.text(state["title"], 4, 3, 0) # 反白字體
+    oled.text(state["title"], 2, 3, 0)
     
     # 左側資訊欄位
-    oled.text(state["desc"], 0, 20, 1)
-    oled.text(state["alert"], 0, 34, 1)
+    oled.text(state["desc"], 0, 18, 1)
+    oled.text(state["alert"], 0, 32, 1)
     
     # 右側圖標
     draw_icon(state["icon_type"])
     
-    # 底部狀態列（分隔線與按鍵提示）
+    # 底部狀態列
     oled.hline(0, 48, 128, 1)
-    oled.text("Btn:Switch [#{:02d}]".format(count), 0, 52, 1)
+    if status_msg:
+        oled.text(status_msg, 0, 52, 1)
+    else:
+        oled.text("Btn:Next [#{:02d}]".format(count), 0, 52, 1)
     
     oled.show()
 
+def show_splash(line1, line2="", line3=""):
+    """通訊或開機提示畫面"""
+    oled.fill(0)
+    oled.fill_rect(0, 0, 128, 12, 1)
+    oled.text("[ Weather IoT ]", 4, 2, 0)
+    oled.text(line1, 0, 20, 1)
+    oled.text(line2, 0, 35, 1)
+    oled.text(line3, 0, 50, 1)
+    oled.show()
+
+def connect_wifi():
+    """自動輪詢連接 Wi-Fi"""
+    global current_ip
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    
+    for cfg in WIFI_CONFIGS:
+        ssid = cfg["ssid"]
+        pwd = cfg["pass"]
+        print(f"Connecting to Wi-Fi: {ssid} ...")
+        show_splash("Connecting Wi-Fi:", ssid[:15], "Please wait...")
+        
+        wlan.connect(ssid, pwd)
+        start_time = time.time()
+        while not wlan.isconnected():
+            if time.time() - start_time > 12: # 12 秒連不上換下一個
+                print(f"Timeout connecting to {ssid}")
+                break
+            time.sleep_ms(300)
+            
+        if wlan.isconnected():
+            current_ip = wlan.ifconfig()[0]
+            print(f"Wi-Fi Connected! IP: {current_ip}")
+            show_splash("Wi-Fi Connected!", f"SSID: {ssid}", f"IP: {current_ip}")
+            time.sleep(2)
+            return True
+            
+    print("All Wi-Fi connections failed. Operating in offline mode.")
+    show_splash("Wi-Fi Failed!", "Running Offline", "Check AP/Hotspot")
+    time.sleep(2)
+    return False
+
+def sync_to_google_sheet(state, count):
+    """將當前狀態透過 HTTP POST 上傳至 Google Apps Script"""
+    wlan = network.WLAN(network.STA_IF)
+    if not wlan.isconnected():
+        print("Wi-Fi not connected. Skipping upload.")
+        render_ui(state, count, "Upload: No Wi-Fi")
+        time.sleep(1.5)
+        return False
+        
+    payload = {
+        "device": DEVICE_NAME,
+        "event": f"Weather_{state['id']}",
+        "press_count": count,
+        "message": state["message"]
+    }
+    
+    print(f">> Uploading payload to Google Sheet: {payload}")
+    render_ui(state, count, "Syncing Sheet...")
+    
+    headers = {"Content-Type": "application/json"}
+    try:
+        # MicroPython urequests 支援發送 json 字串
+        response = urequests.post(GAS_URL, data=ujson.dumps(payload), headers=headers)
+        status_code = response.status_code
+        resp_text = response.text
+        response.close()
+        
+        print(f">> Response [{status_code}]: {resp_text}")
+        if status_code in (200, 302):
+            render_ui(state, count, "Sheet Synced! OK")
+            time.sleep(1.5)
+            return True
+        else:
+            render_ui(state, count, f"HTTP Err: {status_code}")
+            time.sleep(1.5)
+            return False
+            
+    except Exception as e:
+        print(f"Upload failed with exception: {e}")
+        render_ui(state, count, "Upload Error!")
+        time.sleep(1.5)
+        return False
+
 def main():
     global current_index, switch_count
-    print("=" * 40)
-    print("Weather State Monitor Started!")
-    print("GPIO 18 Button: Press to toggle state")
-    print("=" * 40)
+    print("=" * 45)
+    print("ESP32-S3 Weather Monitor & Google Sheet Sync")
+    print("=" * 45)
     
-    # 首次繪製初始狀態（晴天）
+    # 步驟 1: 連線 Wi-Fi
+    connect_wifi()
+    
+    # 步驟 2: 初始畫面
+    render_ui(WEATHER_STATES[current_index], switch_count)
+    
+    # 上傳初始狀態
+    sync_to_google_sheet(WEATHER_STATES[current_index], switch_count)
     render_ui(WEATHER_STATES[current_index], switch_count)
     
     last_btn_state = 1
     
+    # 步驟 3: 主迴圈監聽按鍵
     while True:
         btn_val = btn.value()
         
-        # 偵測按下瞬間（由 1 變 0，內部 Pull-Up）
+        # 按下瞬間 (Pull-up: 1 -> 0)
         if last_btn_state == 1 and btn_val == 0:
-            time.sleep_ms(30) # 簡易硬體防彈跳
+            time.sleep_ms(30) # 防彈跳
             if btn.value() == 0:
                 current_index = (current_index + 1) % len(WEATHER_STATES)
                 switch_count += 1
                 state = WEATHER_STATES[current_index]
                 
-                print(">> [Switch #{}] State toggled to: {}".format(switch_count, state["id"]))
+                print(f">> [Button Pressed #{switch_count}] New State: {state['id']}")
                 render_ui(state, switch_count)
                 
-                # 等待按鈕放開
+                # 等待按鍵放開
                 while btn.value() == 0:
                     time.sleep_ms(20)
-        
+                
+                # 同步上報 Google 試算表
+                sync_to_google_sheet(state, switch_count)
+                # 上報完成後切回預設待機提示
+                render_ui(state, switch_count)
+                
         last_btn_state = btn_val
         time.sleep_ms(20)
 
