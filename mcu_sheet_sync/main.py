@@ -27,8 +27,8 @@ DEVICE_NAME = "ESP32-S3_Weather"
 
 # ================= Wi-Fi 熱點設定 =================
 WIFI_CONFIGS = [
-    {"ssid": "egg5630", "pass": "27985630"},          # 優先家用 Wi-Fi
-    {"ssid": "Redmi 13C", "pass": "chdmchkcrdfd7e8"}   # 備援手機熱點
+    {"ssid": "Redmi 13C", "pass": "chdmchkcrdfd7e8"},  # 優先手機熱點
+    {"ssid": "egg5630", "pass": "27985630"}           # 備援家用 Wi-Fi
 ]
 
 # ================= 硬體腳位定義 =================
