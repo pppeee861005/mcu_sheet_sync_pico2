@@ -62,15 +62,50 @@ function doPost(e) {
   return handleData(data);
 }
 
-// 支援 GET (MCU 傳遞 ?device=ESP32&event=Weather_RAIN&press_count=1&message=...)
+// 支援 GET (MCU 傳遞 ?action=read_latest 或 ?device=SkySync_ESP32&event=Weather_RAIN...)
 function doGet(e) {
   var params = (e && e.parameter) ? e.parameter : {};
+  
+  // 動作 1：讀取最新留言 (雲端悄悄話功能)
+  if (params.action === "get_msg") {
+    try {
+      var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+      var lastRow = sheet.getLastRow();
+      var msg = "No Message";
+      var sender = "Cloud";
+      var timeStr = "";
+      
+      if (lastRow > 1) {
+        // 取得最後一列的資料 (時間戳記, 裝置名稱, 事件, 次數, 備註/訊息)
+        var rowData = sheet.getRange(lastRow, 1, 1, 5).getValues()[0];
+        timeStr = rowData[0] ? String(rowData[0]).substring(11, 16) : "";
+        sender = rowData[1] || "Cloud";
+        msg = rowData[4] || rowData[2] || "Hello!";
+      } else {
+        msg = "Welcome to SkyDeck!";
+      }
+      
+      return ContentService.createTextOutput(JSON.stringify({
+        "status": "success",
+        "time": timeStr,
+        "sender": sender,
+        "message": msg
+      })).setMimeType(ContentService.MimeType.JSON);
+    } catch (err) {
+      return ContentService.createTextOutput(JSON.stringify({
+        "status": "error",
+        "message": err.toString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
   // 如果沒有帶任何參數，回傳健康檢查資訊
   if (Object.keys(params).length === 0) {
     return ContentService.createTextOutput(JSON.stringify({
       "status": "active",
-      "message": "MCU Sheet Sync Web App API 運作中"
+      "message": "SkyDeck OS API 運作中"
     })).setMimeType(ContentService.MimeType.JSON);
   }
+  
   return handleData(params);
 }
