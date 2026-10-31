@@ -1,20 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-天氣/災害狀態監測儀與 Google 試算表即時同步 (MCU Sheet Sync) - 雙鍵旗艦版
+SkySync (天鏡同步儀) - 天氣監測與 Google 試算表即時同步系統
 主控硬體：ESP32-S3 DevKitC-1
 顯示器：0.96" OLED (SSD1306, I2C: SDA=GPIO21, SCL=GPIO22, 128x64)
 按鍵輸入：
   - 左鍵：GPIO 18 (內部上拉，切換狀態 / 開機選單切換)
   - 右鍵：GPIO 4  (內部上拉，確認送出 / 開機選單確認連線)
-
-互動邏輯：
-  1. 開機雙鍵選單（5 秒自動倒數）：
-     - 1. Redmi 13C (手機熱點優先)
-     - 2. egg5630 (家用 Wi-Fi)
-     - 左鍵切換，右鍵確認（或 5 秒後自動連預選）。
-  2. 進入天氣儀表板：
-     - 左鍵 (GPIO 18)：循環切換預覽（晴天 ☀️ -> 大雨 🌧️ -> 淹水 🌊），先不上傳。
-     - 右鍵 (GPIO 4)：確認並正式同步至 Google 試算表！
 """
 
 import time
@@ -25,7 +16,7 @@ from ssd1306 import SSD1306_I2C
 
 # ================= 雲端 API 設定 =================
 GAS_URL = "https://script.google.com/macros/s/AKfycbwIi14pKmIsPCxihmJ31xqaVSj30XMGxdn5rQYyk35okmtZL1jRcPkDYQjbZVhL0aT6/exec"
-DEVICE_NAME = "ESP32-S3_Weather"
+DEVICE_NAME = "SkySync_ESP32"
 
 # ================= Wi-Fi 熱點設定 =================
 WIFI_CONFIGS = [
@@ -147,7 +138,7 @@ def show_splash(line1, line2="", line3=""):
     """開機/連網狀態提示畫面"""
     oled.fill(0)
     oled.fill_rect(0, 0, 128, 12, 1)
-    oled.text("[ Weather IoT ]", 4, 2, 0)
+    oled.text("[ SkySync IoT ]", 4, 2, 0)
     oled.text(line1, 0, 20, 1)
     oled.text(line2, 0, 35, 1)
     oled.text(line3, 0, 50, 1)
@@ -330,7 +321,7 @@ def sync_to_google_sheet(state, count):
 def main():
     global current_index, switch_count, is_dirty
     print("=" * 45)
-    print("ESP32-S3 Weather Monitor & Google Sheet Sync (Dual Button Final)")
+    print("SkySync - Weather & Google Sheet Sync (Dual Button)")
     print("  - Left (GPIO 18): Next State")
     print("  - Right (GPIO 4): Confirm & Send")
     print("=" * 45)
