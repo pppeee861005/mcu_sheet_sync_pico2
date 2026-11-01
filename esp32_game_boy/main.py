@@ -55,13 +55,14 @@ def play_boot_ceremony():
     oled.show()
     time.sleep(1.2)
 
-# ================= 3. 主選單 (5 大應用) =================
+# ================= 3. 主選單 (6 大應用) =================
 MENU_ITEMS = [
     {"title": "1. DINO GAME",  "desc": "Jump & Dodge"},
     {"title": "2. RACING GAME","desc": "Formula Turbo"},
-    {"title": "3. CAT VOUCHER","desc": "Tear & Feast"},
-    {"title": "4. POMODORO",   "desc": "Focus Timer"},
-    {"title": "5. GEEK CLOCK", "desc": "Stopwatch & Time"}
+    {"title": "3. POKEMON BATTLE","desc": "Pikachu vs Eevee"},
+    {"title": "4. CAT VOUCHER","desc": "Tear & Feast"},
+    {"title": "5. POMODORO",   "desc": "Focus Timer"},
+    {"title": "6. GEEK CLOCK", "desc": "Stopwatch & Time"}
 ]
 
 def show_main_menu():
@@ -352,7 +353,163 @@ def run_racing():
 
         time.sleep_ms(30)
 
-# ================= 應用 3: 貓咪餐券 (Cat Voucher - 極致儀式感版) =================
+# ================= 應用 3: 寶可夢經典對戰 (Pokemon Battle: Pikachu vs Eevee) =================
+def run_pokemon():
+    p_max_hp = 30
+    p_hp = p_max_hp
+    e_max_hp = 28
+    e_hp = e_max_hp
+
+    # 技能清單 (名字, 傷害, 命中率, 說明)
+    MOVES = [
+        {"name": "THUNDERBOLT", "dmg": 10, "acc": 85},
+        {"name": "QUICK ATTACK", "dmg": 6,  "acc": 100},
+        {"name": "IRON TAIL",    "dmg": 12, "acc": 70},
+        {"name": "POTION",       "dmg": -12, "acc": 100} # 補血
+    ]
+    cur_move = 0
+    state = "CHOOSE" # CHOOSE, ANIM, ENEMY_TURN, WIN, LOSE
+    anim_text = ""
+    last_l = 1
+    last_r = 1
+
+    def draw_hp_bar(x, y, cur, max_val):
+        oled.rect(x, y, 38, 5, 1)
+        fill_w = int(max(0.0, min(1.0, cur / max_val)) * 36)
+        if fill_w > 0:
+            oled.fill_rect(x + 1, y + 1, fill_w, 3, 1)
+
+    def draw_battle_scene(show_box=True):
+        oled.fill(0)
+        # 1. 敵方 (伊布 EEVEE - 右上方)
+        oled.text("EEVEE Lv5", 58, 2, 1)
+        draw_hp_bar(80, 11, e_hp, e_max_hp)
+        oled.text("HP", 66, 10, 1)
+        # 伊布簡易像素剪影 (耳朵 + 臉)
+        oled.fill_rect(100, 18, 12, 10, 1)
+        oled.fill_rect(96, 14, 4, 8, 1)   # 左耳
+        oled.fill_rect(112, 14, 4, 8, 1)  # 右耳
+        oled.pixel(103, 21, 0)
+        oled.pixel(108, 21, 0)
+
+        # 2. 我方 (皮卡丘 PIKACHU - 左下方後背視角)
+        oled.text("PIKA Lv5", 2, 28, 1)
+        draw_hp_bar(20, 37, p_hp, p_max_hp)
+        oled.text("HP", 6, 36, 1)
+        oled.text(f"{p_hp}/{p_max_hp}", 20, 43, 1)
+        # 皮卡丘背影 + 閃電尾巴
+        oled.fill_rect(6, 48, 14, 15, 1)
+        oled.fill_rect(4, 52, 3, 6, 1)
+        oled.fill_rect(19, 44, 4, 8, 1)  # 閃電尾巴折角
+        oled.fill_rect(15, 48, 4, 4, 1)
+
+        # 3. 底部指令或對話框
+        if show_box:
+            oled.rect(0, 52, 128, 12, 1)
+            if state == "CHOOSE":
+                # 顯示選中招式與換招提示
+                m_name = MOVES[cur_move]["name"]
+                oled.text(f">{m_name[:8]} L:Chg R:Atk"[:16], 2, 54, 1)
+            else:
+                oled.text(anim_text[:16], 4, 54, 1)
+        oled.show()
+
+    draw_battle_scene()
+
+    while True:
+        vl = btn_left.value()
+        vr = btn_right.value()
+
+        # 雙鍵同按 -> 回主選單
+        if vl == 0 and vr == 0:
+            time.sleep_ms(500)
+            break
+
+        # 玩家回合：選擇招式
+        if state == "CHOOSE":
+            # 左鍵 (GPIO 18): 切換招式
+            if last_l == 1 and vl == 0:
+                cur_move = (cur_move + 1) % len(MOVES)
+                draw_battle_scene()
+                time.sleep_ms(150)
+
+            # 右鍵 (GPIO 4): 確認出招
+            if last_r == 1 and vr == 0:
+                move = MOVES[cur_move]
+                state = "ANIM"
+                
+                # 判定補血或攻擊
+                if move["dmg"] < 0:
+                    p_hp = min(p_max_hp, p_hp - move["dmg"])
+                    anim_text = "Pika uses POTION!"
+                else:
+                    hit = random.randint(1, 100) <= move["acc"]
+                    if hit:
+                        e_hp = max(0, e_hp - move["dmg"])
+                        anim_text = f"Pika {move['name'][:7]}!"
+                    else:
+                        anim_text = "Attack Missed!"
+
+                draw_battle_scene()
+                time.sleep(1.2)
+
+                # 閃爍特效
+                for _ in range(2):
+                    draw_battle_scene(show_box=False)
+                    time.sleep_ms(60)
+                    oled.invert(True)
+                    time.sleep_ms(60)
+                    oled.invert(False)
+
+                if e_hp == 0:
+                    state = "WIN"
+                    anim_text = "EEVEE Fainted!"
+                    draw_battle_scene()
+                    time.sleep(1.5)
+                    anim_text = "YOU WIN! L/R:Re"
+                    draw_battle_scene()
+                else:
+                    # 輪到敵方回合
+                    state = "ENEMY_TURN"
+                    anim_text = "Eevee attacks!"
+                    draw_battle_scene()
+                    time.sleep(1.0)
+                    
+                    # 伊布反擊
+                    e_dmg = random.choice([5, 8, 10])
+                    p_hp = max(0, p_hp - e_dmg)
+                    anim_text = f"Bite! -{e_dmg} HP"
+                    draw_battle_scene()
+                    time.sleep(1.2)
+
+                    if p_hp == 0:
+                        state = "LOSE"
+                        anim_text = "Pikachu Fainted!"
+                        draw_battle_scene()
+                        time.sleep(1.5)
+                        anim_text = "GAME OVER L/R:Re"
+                        draw_battle_scene()
+                    else:
+                        state = "CHOOSE"
+                        draw_battle_scene()
+
+                time.sleep_ms(100)
+
+        elif state in ["WIN", "LOSE"]:
+            # 結算重玩
+            if (last_l == 1 and vl == 0) or (last_r == 1 and vr == 0):
+                p_hp = p_max_hp
+                e_hp = e_max_hp
+                cur_move = 0
+                state = "CHOOSE"
+                draw_battle_scene()
+                time.sleep_ms(200)
+
+        last_l = vl
+        last_r = vr
+        time.sleep_ms(30)
+
+# ================= 應用 4: 貓咪餐券 (Cat Voucher - 極致儀式感版) =================
 def run_cat_voucher():
     tickets = 1
     
@@ -624,10 +781,12 @@ def main():
         elif choice == 1:
             run_racing()
         elif choice == 2:
-            run_cat_voucher()
+            run_pokemon()
         elif choice == 3:
-            run_pomodoro()
+            run_cat_voucher()
         elif choice == 4:
+            run_pomodoro()
+        elif choice == 5:
             run_clock()
 
 if __name__ == "__main__":
