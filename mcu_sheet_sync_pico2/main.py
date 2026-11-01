@@ -217,29 +217,31 @@ FORTUNE_OPTIONS = [
 ]
 
 def run_sys_fortune():
-    lcd_p("[Fortune Dice]", "L:Lunch  R:Lucky")
+    lcd_p("[Fortune Dice]", "L:Preset R:Cloud")
     last_l = 1
     last_r = 1
 
-    def roll_dice_animation(category="Lunch"):
-        # 1. 骰子高速滾動動畫 (問號與選項快速閃動)
+    def roll_dice_animation(category="Lunch", options_list=FORTUNE_OPTIONS):
+        if not options_list:
+            options_list = FORTUNE_OPTIONS
+            
         lcd.clear()
         lcd_p(f"Rolling {category}...", ">> ?? ?? ?? <<")
         
-        # 速度由快到慢的儀式感抽籤滾動 (類似拉霸機)
+        # 類似拉霸機的減速滾動抽籤
         delays = [50, 50, 70, 90, 120, 160, 220, 300]
-        chosen = FORTUNE_OPTIONS[0]
+        chosen = options_list[0]
         
         for d in delays:
-            chosen = FORTUNE_OPTIONS[time.ticks_ms() % len(FORTUNE_OPTIONS)]
+            chosen = options_list[time.ticks_ms() % len(options_list)]
             lcd.move_to(0, 1)
             lcd.putstr(f"> {chosen[:13]} <"[:16].center(16))
             time.sleep_ms(d)
 
-        # 2. 定格慶祝
+        # 定格閃爍
         for _ in range(2):
             lcd.move_to(0, 0)
-            lcd.putstr(f"*** {category.upper()} ***"[:16].center(16))
+            lcd.putstr(f"*** {category.upper()[:10]} ***"[:16].center(16))
             time.sleep_ms(100)
             lcd.move_to(0, 0)
             lcd.putstr("                ")
@@ -249,15 +251,15 @@ def run_sys_fortune():
         lcd.putstr(f"* DESTINY WON *"[:16].center(16))
         lcd.move_to(0, 1)
         lcd.putstr(f"> {chosen[:12]} <"[:16].center(16))
-        time.sleep(1.5)
+        time.sleep(1.8)
 
-        # 3. 寫回 Google 試算表留念
+        # 寫回 Google 試算表留念
         lcd_p("Logging Destiny.", "Sync to Sheet...")
         payload = {
             "action": "log_event",
             "device": "Pico2W",
-            "event": "Fortune_Dice",
-            "message": f"Chosen: {chosen}",
+            "event": "Cloud_Choice",
+            "message": f"Picked: {chosen}",
             "ts": time.time()
         }
         res, code = safe_gas_request(payload=payload)
@@ -267,8 +269,35 @@ def run_sys_fortune():
             lcd_p("Offline Saved!", chosen[:16])
         time.sleep(2)
 
-        # 返回待機
-        lcd_p(f"Last:{chosen[:11]}", "L:Lunch  R:Lucky")
+        lcd_p(f"Last:{chosen[:11]}", "L:Preset R:Cloud")
+
+    def handle_cloud_choice():
+        """從 Google 試算表抓取逗號隔開的多個選項並隨機挑選一個"""
+        lcd_p("Reading Sheet...", "Fetching items..")
+        res, code = safe_gas_request(params="action=get_msg")
+        
+        items = []
+        if code == "OK":
+            raw_text = ""
+            if isinstance(res, dict):
+                raw_text = str(res.get("message") or res.get("msg") or "")
+            else:
+                raw_text = str(res)
+                
+            # 支援逗號 (英半形 , 或中全形 ，) 與空格切分
+            if raw_text:
+                # 替換中文逗號為英文逗號
+                normalized = raw_text.replace("，", ",")
+                items = [x.strip() for x in normalized.split(",") if x.strip()]
+
+        if items:
+            lcd_p("Loaded Options:", f"{len(items)} choices!")
+            time.sleep(1.2)
+            roll_dice_animation("Sheet", items)
+        else:
+            lcd_p("No Items Found!", "Using Presets...")
+            time.sleep(1.5)
+            roll_dice_animation("Lunch", FORTUNE_OPTIONS)
 
     while True:
         vl = btn_left.value()
@@ -280,14 +309,14 @@ def run_sys_fortune():
             time.sleep_ms(600)
             break
 
-        # 左鍵 (GP14): 抽午餐
+        # 左鍵 (GP14): 抽本機預設籤筒 (Preset)
         if last_l == 1 and vl == 0:
-            roll_dice_animation("Lunch")
+            roll_dice_animation("Preset", FORTUNE_OPTIONS)
             time.sleep_ms(200)
 
-        # 右鍵 (GP16): 抽今日運勢 / 籤詩
+        # 右鍵 (GP16): 從 Google Sheet 抓取自訂多選一清單 (Cloud Choice)
         if last_r == 1 and vr == 0:
-            roll_dice_animation("Fate")
+            handle_cloud_choice()
             time.sleep_ms(200)
 
         last_l = vl
