@@ -25,8 +25,10 @@ function handleData(params) {
 
     var device = params.device || "ESP32-S3";
     var event = params.event || "Button_Press";
-    var pressCount = (params.press_count !== undefined) ? params.press_count : "";
-    var message = params.message || "按鍵觸發狀態同步";
+    // 同步相容 count 與 press_count 兩種傳參方式
+    var pressCount = (params.count !== undefined) ? params.count : ((params.press_count !== undefined) ? params.press_count : "");
+    // 同步相容 msg 與 message 兩種傳參方式
+    var message = params.msg || params.message || "按鍵觸發狀態同步";
 
     // 追加寫入試算表新列
     sheet.appendRow([timestamp, device, event, pressCount, message]);
@@ -35,7 +37,8 @@ function handleData(params) {
       "status": "success",
       "timestamp": timestamp,
       "press_count": pressCount,
-      "event": event
+      "event": event,
+      "message": message
     })).setMimeType(ContentService.MimeType.JSON);
 
   } catch (error) {
@@ -62,7 +65,7 @@ function doPost(e) {
   return handleData(data);
 }
 
-// 支援 GET (MCU 傳遞 ?action=read_latest 或 ?device=SkySync_ESP32&event=Weather_RAIN...)
+// 支援 GET (MCU 傳遞 ?action=get_msg 或 ?device=SkySync_ESP32&event=Weather_RAIN...)
 function doGet(e) {
   var params = (e && e.parameter) ? e.parameter : {};
   
