@@ -211,7 +211,8 @@ def select_and_connect_wifi():
 SYSTEMS = [
     {"id": "SKY_SYNC", "title": "1. SkySync Weather", "desc": "Weather Sync App"},
     {"id": "CLOUD_MSG", "title": "2. Cloud Msg Board", "desc": "Live Sheet Notes"},
-    {"id": "POMODORO", "title": "3. Pomodoro Tracker", "desc": "Focus & Sheet Log"}
+    {"id": "POMODORO", "title": "3. Pomodoro Tracker", "desc": "Focus & Sheet Log"},
+    {"id": "CAT_TICKET", "title": "4. Cat Meal Voucher", "desc": "1-Ticket Cat Feast"}
 ]
 
 def select_system():
@@ -591,6 +592,171 @@ def run_pomodoro():
         last_r = vr
         time.sleep_ms(40)
 
+
+# ================= 7. 系統 4：Cat Meal Voucher (貓咪餐券儀式機) =================
+def run_cat_ticket():
+    # 核心規則：每次啟動固定只有 1 張神聖餐券
+    tickets = 1
+    
+    def render_voucher_ready():
+        oled.fill(0)
+        # 繪製票券頂部與外框虛線
+        oled.fill_rect(0, 0, 128, 13, 1)
+        oled.text("* CAT VOUCHER *", 8, 3, 0)
+        
+        # 票券外框邊界
+        oled.rect(2, 16, 124, 30, 1)
+        oled.text("TICKET: #001", 14, 20, 1)
+        oled.text("MEAL: CANNED FOOD", 8, 32, 1)
+        
+        # 貓咪期待臉
+        oled.hline(0, 48, 128, 1)
+        oled.text("(=^.^=) HOLD R 2s", 0, 52, 1)
+        oled.show()
+
+    def render_sold_out():
+        oled.fill(0)
+        oled.fill_rect(0, 0, 128, 13, 1)
+        oled.text("[ VOUCHER USED ]", 4, 3, 0)
+        
+        oled.text("FULL & HAPPY!", 12, 20, 1)
+        oled.text("(= - . - =) zzz", 8, 34, 1)
+        
+        oled.hline(0, 48, 128, 1)
+        oled.text("REBOOT FOR NEXT!", 0, 52, 1)
+        oled.show()
+
+    def play_tear_and_feast():
+        # 儀式 1：撕票動態鋸齒動畫 (Tearing)
+        for step in range(0, 64, 8):
+            oled.fill(0)
+            # 左半票向左退、右半票向右退
+            oled.rect(2 - step, 16, 60, 30, 1)
+            oled.text("TICK", 10 - step, 26, 1)
+            oled.rect(66 + step, 16, 60, 30, 1)
+            oled.text("ET#1", 72 + step, 26, 1)
+            # 中央撕裂虛線
+            for y in range(0, 64, 6):
+                oled.pixel(64, y, 1)
+            oled.show()
+            time.sleep_ms(40)
+            
+        # 儀式 2：暴風進食三部曲 (YUMMY / MEOW / PURR)
+        faces = [
+            ("(=^O^=) NOM NOM!", "Eating Feast..."),
+            ("(=^o^=) SO YUMMY!", "Delicious Cat Can"),
+            ("(=^w^=) PURRR~ <3", "Super Happy Meow!")
+        ]
+        for face, subtitle in faces:
+            oled.fill(0)
+            oled.fill_rect(0, 0, 128, 13, 1)
+            oled.text("* CAT FEAST! *", 10, 3, 0)
+            oled.text(face, 6, 24, 1)
+            oled.text(subtitle, 4, 40, 1)
+            oled.show()
+            time.sleep(0.7)
+            
+        # 儀式 3：雲端試算表打卡開飯紀錄
+        oled.fill(0)
+        oled.fill_rect(0, 0, 128, 13, 1)
+        oled.text("[ CLOUD SYNC ]", 10, 3, 0)
+        oled.text("Syncing Sheet...", 4, 26, 1)
+        oled.text("Reporting Meal!", 4, 40, 1)
+        oled.show()
+        
+        try:
+            import gc
+            gc.collect()
+            wlan = network.WLAN(network.STA_IF)
+            if wlan.isconnected():
+                url = f"{GAS_URL}?device=CatTicket_ESP32&event=Meal_Redeemed&count=1&msg=Ate_Delicious_Canned_Food"
+                r = urequests.get(url)
+                r.close()
+                oled.text("Sync OK!", 70, 52, 1)
+            else:
+                oled.text("Offline OK", 60, 52, 1)
+        except Exception as e:
+            print("Cat upload error:", e)
+        time.sleep(1.2)
+
+    render_voucher_ready()
+    last_l = 1
+    last_r = 1
+
+    while True:
+        vl = btn_left.value()
+        vr = btn_right.value()
+        
+        # 左鍵：查看貓咪小資訊
+        if last_l == 1 and vl == 0:
+            time.sleep_ms(30)
+            if btn_left.value() == 0:
+                oled.fill(0)
+                oled.fill_rect(0, 0, 128, 13, 1)
+                oled.text("[ CAT STATUS ]", 8, 3, 0)
+                if tickets > 0:
+                    oled.text("Status: HUNGRY!", 6, 22, 1)
+                    oled.text("Voucher: 1 Left", 6, 36, 1)
+                else:
+                    oled.text("Status: SLEEPING", 4, 22, 1)
+                    oled.text("Voucher: 0 Left", 6, 36, 1)
+                oled.show()
+                time.sleep(1.5)
+                if tickets > 0:
+                    render_voucher_ready()
+                else:
+                    render_sold_out()
+                while btn_left.value() == 0:
+                    time.sleep_ms(20)
+                    
+        # 右鍵：長按 2 秒蓄力核銷
+        if vr == 0:
+            if tickets > 0:
+                # 開始計算長按秒數
+                hold_start = time.time()
+                is_cancelled = False
+                
+                while btn_right.value() == 0:
+                    elapsed = time.time() - hold_start
+                    # 畫面顯示蓄力進度條
+                    pct = min(1.0, elapsed / 2.0)
+                    oled.fill(0)
+                    oled.fill_rect(0, 0, 128, 13, 1)
+                    oled.text(">> HOLD 2s <<", 12, 3, 0)
+                    oled.text("FEEDING CAT...", 12, 22, 1)
+                    # 進度外框與填滿
+                    oled.rect(14, 38, 100, 8, 1)
+                    oled.fill_rect(16, 40, int(pct * 96), 4, 1)
+                    oled.show()
+                    time.sleep_ms(40)
+                    
+                    if elapsed >= 2.0:
+                        # 蓄力完成！執行神聖撕票儀式
+                        tickets = 0
+                        play_tear_and_feast()
+                        render_sold_out()
+                        while btn_right.value() == 0:
+                            time.sleep_ms(30)
+                        break
+                else:
+                    # 中途放開，取消核銷
+                    if tickets > 0:
+                        render_voucher_ready()
+            else:
+                # 已經用完，按右鍵友善提示
+                oled.fill(0)
+                oled.text("NO TICKETS!", 20, 20, 1)
+                oled.text("Please REBOOT", 16, 36, 1)
+                oled.show()
+                time.sleep(1.2)
+                render_sold_out()
+                while btn_right.value() == 0:
+                    time.sleep_ms(20)
+                    
+        last_l = vl
+        last_r = vr
+        time.sleep_ms(30)
+
 # ================= 主程式進入點 =================
 def main():
     print("=============================================")
@@ -616,6 +782,9 @@ def main():
     elif selected_app == "POMODORO":
         print(">> 啟動系統 3: Pomodoro Tracker 番茄鐘專注打卡機")
         run_pomodoro()
+    elif selected_app == "CAT_TICKET":
+        print(">> 啟動系統 4: Cat Meal Voucher 貓咪餐券儀式機")
+        run_cat_ticket()
 
 if __name__ == "__main__":
     main()
