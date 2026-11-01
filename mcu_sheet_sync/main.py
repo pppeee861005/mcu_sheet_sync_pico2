@@ -1,191 +1,51 @@
-# -*- coding: utf-8 -*-
-"""
-SkyDeck OS v1.0 (極客掌上微系統)
-具備高儀式感開機動畫、開機雙 Wi-Fi 選單，以及 雙系統架構：
-  - 系統 1: SkySync (天氣與雲端試算表鏡像儀)
-  - 系統 2: CloudMsg (桌上型雲端悄悄話與留言看板)
-
-硬體配置：
-  - 主控：ESP32-S3 DevKitC-1
-  - 螢幕：0.96" OLED (SSD1306, SDA=21, SCL=22)
-  - 操控：左鍵 (GPIO 18 - Next) / 右鍵 (GPIO 4 - Enter / Confirm)
-"""
+# main.py - SkyDeck OS 終極極客版 (純離線全功能掌機)
+# 主選單:
+# 1. 小恐龍 (Chrome Dino Game)
+# 2. 貓咪餐券 (Cat Meal Voucher 撕票/進食動畫)
+# 3. 番茄鐘 (Pomodoro Focus Tracker 25m/5m/10m)
+# 4. 極客時鐘與碼表 (Clock & Stopwatch)
+# 硬體: ESP32-S3 (OLED SDA=21, SCL=22, 左鍵=GPIO 18, 右鍵=GPIO 4)
 
 import time
-import network
-import socket
-import ssl
-import json
+import random
 import gc
 from machine import Pin, I2C
 from ssd1306 import SSD1306_I2C
 
-# ================= 雲端 API 設定 =================
-GAS_SCRIPT_ID = "AKfycbzQsSR4uJahVTjEIPNrKjdM-7PTsLZusn9LWeKCodQBbBLU1RcgGGMjStzuprmJhiEU"
-
-def safe_gas_get(params="", timeout=7):
-    """
-    專為 Google Apps Script 打造的輕量且徹底防卡死的原生 HTTP 請求器
-    繞過 urequests 自動重導向時容易在 MicroPython 造成的 socket 死鎖問題。
-    流程：
-    1. 請求 script.google.com -> 取得 302 重導向目標 (Location)
-    2. 關閉第一個連線並釋放記憶體
-    3. 連線至 script.googleusercontent.com -> 取得真實 JSON 資料
-    """
-    gc.collect()
-    wlan = network.WLAN(network.STA_IF)
-    if not wlan.isconnected():
-        return None, "Offline"
-
-    host = "script.google.com"
-    path = f"/macros/s/{GAS_SCRIPT_ID}/exec"
-    if params:
-        path += f"?{params}"
-
-    s = None
-    ss = None
-    loc = None
-
-    # 第一階段：請求 script.google.com
-    try:
-        ai = socket.getaddrinfo(host, 443)
-        s = socket.socket()
-        s.settimeout(timeout)
-        s.connect(ai[0][-1])
-        ss = ssl.wrap_socket(s, server_hostname=host)
-        
-        req = f"GET {path} HTTP/1.0\r\nHost: {host}\r\nConnection: close\r\nUser-Agent: ESP32\r\n\r\n"
-        ss.write(req.encode())
-        
-        while True:
-            line = ss.readline()
-            if not line or line == b"\r\n":
-                break
-            if line.lower().startswith(b"location:"):
-                loc = line[9:].strip().decode()
-    except Exception as e:
-        print("Stage 1 Err:", e)
-        return None, "Error"
-    finally:
-        if ss:
-            try: ss.close()
-            except: pass
-        if s:
-            try: s.close()
-            except: pass
-        gc.collect()
-
-    # 如果沒有取得重新導向網址，表示失敗
-    if not loc:
-        return None, "No Location"
-
-    # 第二階段：請求重新導向目標 (script.googleusercontent.com)
-    s2 = None
-    ss2 = None
-    try:
-        proto, _, host_path = loc.partition("://")
-        r_host, _, r_path = host_path.partition("/")
-        
-        ai2 = socket.getaddrinfo(r_host, 443)
-        s2 = socket.socket()
-        s2.settimeout(timeout)
-        s2.connect(ai2[0][-1])
-        ss2 = ssl.wrap_socket(s2, server_hostname=r_host)
-        
-        req2 = f"GET /{r_path} HTTP/1.0\r\nHost: {r_host}\r\nConnection: close\r\nUser-Agent: ESP32\r\n\r\n"
-        ss2.write(req2.encode())
-        
-        # 跳過 HTTP Header
-        while True:
-            line = ss2.readline()
-            if not line or line == b"\r\n":
-                break
-                
-        body = ss2.read()
-        if body:
-            try:
-                data = json.loads(body.decode())
-                return data, "OK"
-            except:
-                return body.decode(), "OK"
-        return None, "Empty"
-    except Exception as e:
-        print("Stage 2 Err:", e)
-        return None, "Error"
-    finally:
-        if ss2:
-            try: ss2.close()
-            except: pass
-        if s2:
-            try: s2.close()
-            except: pass
-        gc.collect()
-
-# ================= Wi-Fi 熱點設定 =================
-WIFI_CONFIGS = [
-    {"ssid": "egg5630", "pass": "27985630"},           # 家用 Wi-Fi (第一優先)
-    {"ssid": "Redmi 13C", "pass": "chdmchkcrdfd7e8"}   # 手機熱點 (備援)
-]
-
-# ================= 硬體腳位定義 =================
+# ================= 1. 硬體初始化 =================
 I2C_SDA_PIN = 21
 I2C_SCL_PIN = 22
-BUTTON_LEFT_PIN = 18   # 左鍵
-BUTTON_RIGHT_PIN = 4   # 右鍵
+BUTTON_LEFT_PIN = 18    # 左鍵 (Next / Jump / Mode)
+BUTTON_RIGHT_PIN = 4    # 右鍵 (Enter / Confirm / Start)
 
-OLED_WIDTH = 128
-OLED_HEIGHT = 64
+WIDTH = 128
+HEIGHT = 64
 
-# ================= 硬體初始化 =================
 i2c = I2C(0, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN), freq=400000)
-oled = SSD1306_I2C(OLED_WIDTH, OLED_HEIGHT, i2c)
+oled = SSD1306_I2C(WIDTH, HEIGHT, i2c)
 
 btn_left = Pin(BUTTON_LEFT_PIN, Pin.IN, Pin.PULL_UP)
 btn_right = Pin(BUTTON_RIGHT_PIN, Pin.IN, Pin.PULL_UP)
 
-current_ip = "Offline"
-
-# ================= 1. 極高儀式感開機動畫 =================
-def play_ceremony_welcome():
-    """科幻感滿載的極客開機儀式：星空匯聚、進度條解鎖、標題呼吸進場"""
+# ================= 2. 極客開機儀式感 =================
+def play_boot_ceremony():
     oled.fill(0)
-    oled.show()
-    
-    # 階段 1：掃描線與星芒微光
     for r in range(4):
         oled.fill(0)
-        oled.hline(64 - r*10, 32, r*20, 1)
-        oled.vline(64, 32 - r*6, r*12, 1)
+        oled.hline(64 - r * 12, 32, r * 24, 1)
+        oled.vline(64, 32 - r * 7, r * 14, 1)
+        oled.show()
+        time.sleep_ms(50)
+        
+    for step in range(0, 101, 25):
+        oled.fill(0)
+        oled.rect(14, 38, 100, 8, 1)
+        oled.fill_rect(16, 40, int(step * 0.96), 4, 1)
+        oled.text(">> SKYDECK OS <<", 4, 14, 1)
+        oled.text(f"BOOTING {step}%", 24, 50, 1)
         oled.show()
         time.sleep_ms(60)
-        
-    # 階段 2：外框幾何展開
-    for w in range(20, 126, 18):
-        oled.fill(0)
-        h = int(w * 0.45)
-        x = (128 - w) // 2
-        y = (64 - h) // 2
-        oled.rect(x, y, w, h, 1)
-        oled.text("INITIALIZING", 16, 28, 1)
-        oled.show()
-        time.sleep_ms(40)
-        
-    # 階段 3：進度光條加載
-    for step in range(0, 101, 20):
-        oled.fill(0)
-        oled.rect(14, 40, 100, 8, 1)
-        oled.fill_rect(16, 42, int(step * 0.96), 4, 1)
-        oled.text(">> SKYDECK OS <<", 4, 14, 1)
-        oled.text(f"BOOTING {step}%", 24, 52, 1)
-        oled.show()
-        time.sleep_ms(80)
-        
-    # 階段 4：WELCOME 閃爍登場
-    oled.fill(0)
-    oled.fill_rect(0, 0, 128, 64, 1)
-    oled.show()
-    time.sleep_ms(50)
-    
+
     oled.fill(0)
     oled.fill_rect(0, 4, 128, 14, 1)
     oled.text("* SKYDECK OS *", 10, 7, 0)
@@ -195,387 +55,427 @@ def play_ceremony_welcome():
     oled.show()
     time.sleep(1.2)
 
-# ================= 2. 開機 Wi-Fi 二選一選單 =================
-def select_and_connect_wifi():
-    global current_ip
-    wifi_list = [
-        {"name": "1. egg5630   (Home)",  "cfg": WIFI_CONFIGS[0]},
-        {"name": "2. Redmi 13C (Phone)", "cfg": WIFI_CONFIGS[1]}
-    ]
-    selected_idx = 0
-    timeout_seconds = 5
-    start_tick = time.time()
-    last_sec_displayed = -1
-    
-    def render_menu(idx, sec_left):
-        oled.fill(0)
-        oled.fill_rect(0, 0, 128, 13, 1)
-        oled.text(f"Wi-Fi Setup ({sec_left}s)", 4, 3, 0)
-        
-        prefix1 = "> " if idx == 0 else "  "
-        oled.text(prefix1 + "egg5630   (Home)", 0, 20, 1)
-        prefix2 = "> " if idx == 1 else "  "
-        oled.text(prefix2 + "Redmi 13C (Phone)", 0, 34, 1)
-        
-        oled.hline(0, 48, 128, 1)
-        oled.text("L:Next  R:Connect", 0, 52, 1)
-        oled.show()
-        
-    render_menu(selected_idx, timeout_seconds)
-    last_l = 1
-    last_r = 1
-    
-    while True:
-        elapsed = time.time() - start_tick
-        sec_left = max(0, timeout_seconds - elapsed)
-        
-        if sec_left != last_sec_displayed:
-            last_sec_displayed = sec_left
-            render_menu(selected_idx, sec_left)
-            
-        if elapsed >= timeout_seconds:
-            target_cfg = wifi_list[selected_idx]["cfg"]
-            break
-            
-        vl = btn_left.value()
-        vr = btn_right.value()
-        
-        if last_l == 1 and vl == 0:
-            time.sleep_ms(30)
-            if btn_left.value() == 0:
-                selected_idx = (selected_idx + 1) % len(wifi_list)
-                start_tick = time.time()
-                render_menu(selected_idx, timeout_seconds)
-                while btn_left.value() == 0:
-                    time.sleep_ms(20)
-                    
-        if last_r == 1 and vr == 0:
-            time.sleep_ms(30)
-            if btn_right.value() == 0:
-                target_cfg = wifi_list[selected_idx]["cfg"]
-                while btn_right.value() == 0:
-                    time.sleep_ms(20)
-                break
-                
-        last_l = vl
-        last_r = vr
-        time.sleep_ms(20)
-        
-    # 連線 Wi-Fi (完全復位無線射頻，避免狀態機出錯)
-    wlan = network.WLAN(network.STA_IF)
-    try:
-        wlan.active(False)
-        time.sleep_ms(200)
-    except:
-        pass
-    wlan.active(True)
-    time.sleep_ms(200)
-    
-    ssid = target_cfg["ssid"]
-    pwd = target_cfg["pass"]
-    try:
-        wlan.disconnect()
-        time.sleep_ms(200)
-    except:
-        pass
-    wlan.connect(ssid, pwd)
-    
-    t0 = time.time()
-    dot = 0
-    while not wlan.isconnected() and time.time() - t0 < 15:
-        dot = (dot % 3) + 1
-        oled.fill(0)
-        oled.fill_rect(0, 0, 128, 12, 1)
-        oled.text("[ SkyDeck IoT ]", 4, 2, 0)
-        oled.text("Connecting Wi-Fi:", 0, 20, 1)
-        oled.text(ssid[:15], 0, 34, 1)
-        oled.text("Please wait" + "." * dot, 0, 48, 1)
-        oled.show()
-        time.sleep_ms(400)
-        
-    if wlan.isconnected():
-        current_ip = wlan.ifconfig()[0]
-        oled.fill(0)
-        oled.fill_rect(0, 0, 128, 12, 1)
-        oled.text("Wi-Fi Connected!", 2, 2, 0)
-        oled.text(f"SSID: {ssid}", 0, 24, 1)
-        oled.text(f"IP: {current_ip}", 0, 40, 1)
-        oled.show()
-        time.sleep(1.2)
-        return True
-    else:
-        oled.fill(0)
-        oled.text("Wi-Fi Failed!", 10, 24, 1)
-        oled.text("Running Offline", 5, 40, 1)
-        oled.show()
-        time.sleep(1.2)
-        return False
-
-# ================= 3. 多系統選擇選單 (System Selector) =================
-SYSTEMS = [
-    {"id": "SKY_SYNC", "title": "1. SkySync Weather", "desc": "Weather Sync App"},
-    {"id": "CLOUD_MSG", "title": "2. Cloud Msg Board", "desc": "Live Sheet Notes"}
+# ================= 3. 主選單 (4 大應用) =================
+MENU_ITEMS = [
+    {"title": "1. DINO GAME",  "desc": "Jump & Dodge"},
+    {"title": "2. CAT VOUCHER","desc": "Tear & Feast"},
+    {"title": "3. POMODORO",   "desc": "Focus Timer"},
+    {"title": "4. GEEK CLOCK", "desc": "Stopwatch & Time"}
 ]
 
-def select_system():
-    idx = 0
-    def render_sys_menu(selected):
+def show_main_menu():
+    selected = 0
+    last_l = 1
+    last_r = 1
+
+    def render():
         oled.fill(0)
         oled.fill_rect(0, 0, 128, 13, 1)
-        oled.text("[ SELECT SYSTEM ]", 2, 3, 0)
+        oled.text("[ SKYDECK MENU ]", 2, 3, 0)
         
-        oled.text(f"> {SYSTEMS[selected]['title']}", 0, 20, 1)
-        oled.text(f"  {SYSTEMS[selected]['desc']}", 0, 34, 1)
+        # 顯示當前選中的項目
+        oled.text(f"> {MENU_ITEMS[selected]['title']}", 0, 20, 1)
+        oled.text(f"  {MENU_ITEMS[selected]['desc']}", 0, 34, 1)
         
         oled.hline(0, 48, 128, 1)
         oled.text("L:Next    R:Enter", 0, 52, 1)
         oled.show()
-        
-    render_sys_menu(idx)
-    last_l = 1
-    last_r = 1
-    
+
+    render()
+
     while True:
         vl = btn_left.value()
         vr = btn_right.value()
-        
+
         if last_l == 1 and vl == 0:
-            time.sleep_ms(30)
-            if btn_left.value() == 0:
-                idx = (idx + 1) % len(SYSTEMS)
-                render_sys_menu(idx)
-                while btn_left.value() == 0:
-                    time.sleep_ms(20)
-                    
+            selected = (selected + 1) % len(MENU_ITEMS)
+            render()
+            time.sleep_ms(200)
+
         if last_r == 1 and vr == 0:
-            time.sleep_ms(30)
-            if btn_right.value() == 0:
-                while btn_right.value() == 0:
-                    time.sleep_ms(20)
-                return SYSTEMS[idx]["id"]
-                
+            time.sleep_ms(200)
+            return selected
+
         last_l = vl
         last_r = vr
         time.sleep_ms(20)
 
-# ================= 4. 系統 1：SkySync (天氣監控系統) =================
-WEATHER_STATES = [
-    {"id": "SUNNY", "title": "[ SUNNY / Sunny ]", "icon_type": "sun", "desc": "Weather is clear", "alert": "Condition: Normal", "message": "Sunny_Clear"},
-    {"id": "RAIN", "title": "[ HEAVY RAIN ]", "icon_type": "rain", "desc": "Rain: > 50 mm/hr", "alert": "Drive with care!", "message": "Heavy_Rain_Warning"},
-    {"id": "FLOOD", "title": "[ FLOOD ALERT! ]", "icon_type": "flood", "desc": "Water level: HIGH", "alert": "** DANGER WARNING **", "message": "Flood_Alert_Danger"}
-]
+# ================= 應用 1: 小恐龍 (Dino Game) =================
+def run_dino():
+    GROUND_Y = 56
+    dino_x = 12
+    dino_y = GROUND_Y - 12
+    velocity_y = 0.0
+    is_jumping = False
+    
+    cactus_x = WIDTH + 10
+    cactus_y = GROUND_Y - 11
+    cactus_speed = 3.0
+    
+    score = 0
+    high_score = 0
+    game_over = False
+    score_timer = time.ticks_ms()
+    last_btn = 1
 
-def draw_icon(icon_type):
-    cx, cy = 110, 30
-    if icon_type == "sun":
-        oled.fill_rect(cx - 5, cy - 5, 11, 11, 1)
-        oled.line(cx, cy - 9, cx, cy - 6, 1)
-        oled.line(cx, cy + 6, cx, cy + 9, 1)
-        oled.line(cx - 9, cy, cx - 6, cy, 1)
-        oled.line(cx + 6, cy + 9, cx + 9, cy, 1)
-        oled.line(cx - 7, cy - 7, cx - 5, cy - 5, 1)
-        oled.line(cx + 5, cy + 5, cx + 7, cy + 7, 1)
-        oled.line(cx - 7, cy + 7, cx - 5, cy + 5, 1)
-        oled.line(cx + 5, cy - 5, cx + 7, cy - 7, 1)
-    elif icon_type == "rain":
-        oled.fill_rect(cx - 10, cy - 8, 20, 8, 1)
-        oled.fill_rect(cx - 6, cy - 12, 12, 5, 1)
-        oled.line(cx - 8, cy + 3, cx - 11, cy + 9, 1)
-        oled.line(cx - 2, cy + 3, cx - 5, cy + 9, 1)
-        oled.line(cx + 4, cy + 3, cx + 1, cy + 9, 1)
-        oled.line(cx + 9, cy + 3, cx + 6, cy + 9, 1)
-    elif icon_type == "flood":
-        oled.line(cx, cy - 12, cx - 10, cy + 3, 1)
-        oled.line(cx, cy - 12, cx + 10, cy + 3, 1)
-        oled.line(cx - 10, cy + 3, cx + 10, cy + 3, 1)
-        oled.line(cx, cy - 7, cx, cy - 2, 1)
-        oled.pixel(cx, cy + 1, 1)
-        oled.line(cx - 12, cy + 8, cx - 6, cy + 6, 1)
-        oled.line(cx - 6, cy + 6, cx, cy + 8, 1)
-        oled.line(cx, cy + 8, cx + 6, cy + 6, 1)
-        oled.line(cx + 6, cy + 6, cx + 12, cy + 8, 1)
+    def draw_d(x, y):
+        y = int(y)
+        oled.fill_rect(x + 4, y, 7, 4, 1)
+        oled.fill_rect(x + 2, y + 4, 10, 5, 1)
+        oled.fill_rect(x, y + 9, 4, 3, 1)
+        oled.fill_rect(x + 7, y + 9, 3, 3, 1)
+        oled.pixel(x + 9, y + 1, 0)
 
-def run_skysync():
-    cur_idx = 0
-    cnt = 0
-    is_dirty = False
-    def render_weather(status_msg=None):
-        st = WEATHER_STATES[cur_idx]
+    def draw_c(x, y):
+        oled.fill_rect(x + 2, y, 3, 11, 1)
+        oled.fill_rect(x, y + 3, 2, 4, 1)
+        oled.fill_rect(x + 5, y + 5, 2, 4, 1)
+
+    while True:
+        vl = btn_left.value()
+        vr = btn_right.value()
+        
+        # 雙鍵同按 -> 回主選單
+        if vl == 0 and vr == 0:
+            time.sleep_ms(500)
+            break
+
+        btn_pressed = (last_btn == 1 and (vl == 0 or vr == 0))
+        last_btn = 0 if (vl == 0 or vr == 0) else 1
+
+        if not game_over:
+            if btn_pressed and not is_jumping:
+                velocity_y = -6.5
+                is_jumping = True
+
+            if is_jumping:
+                dino_y += velocity_y
+                velocity_y += 0.9
+                if dino_y >= GROUND_Y - 12:
+                    dino_y = GROUND_Y - 12
+                    velocity_y = 0.0
+                    is_jumping = False
+
+            cactus_x -= cactus_speed
+            if cactus_x < -6:
+                cactus_x = WIDTH + random.randint(15, 60)
+                cactus_speed = min(6.0, 3.0 + (score // 10) * 0.5)
+
+            now = time.ticks_ms()
+            if time.ticks_diff(now, score_timer) > 250:
+                score += 1
+                score_timer = now
+
+            # 碰撞檢測
+            if (dino_x + 9 > cactus_x and dino_x + 2 < cactus_x + 6 and dino_y + 10 > cactus_y):
+                game_over = True
+                if score > high_score:
+                    high_score = score
+
+            oled.fill(0)
+            oled.hline(0, GROUND_Y, WIDTH, 1)
+            oled.text(f"SCORE:{score:04d}", 0, 0, 1)
+            oled.text(f"HI:{high_score:04d}", 72, 0, 1)
+            draw_d(dino_x, dino_y)
+            if cactus_x < WIDTH:
+                draw_c(int(cactus_x), cactus_y)
+            oled.show()
+        else:
+            oled.fill_rect(14, 14, 100, 36, 0)
+            oled.rect(14, 14, 100, 36, 1)
+            oled.text("GAME OVER!", 24, 18, 1)
+            oled.text(f"SCORE: {score}", 30, 28, 1)
+            oled.text("L/R:RESTART", 20, 38, 1)
+            oled.show()
+
+            if btn_pressed:
+                score = 0
+                cactus_x = WIDTH + 10
+                cactus_speed = 3.0
+                dino_y = GROUND_Y - 12
+                velocity_y = 0.0
+                is_jumping = False
+                game_over = False
+                score_timer = time.ticks_ms()
+                time.sleep_ms(200)
+
+        time.sleep_ms(25)
+
+# ================= 應用 2: 貓咪餐券 (Cat Voucher - 極致儀式感版) =================
+def run_cat_voucher():
+    tickets = 1
+    
+    def render_voucher():
         oled.fill(0)
         oled.fill_rect(0, 0, 128, 13, 1)
-        oled.text(st["title"], 2, 3, 0)
-        oled.text(st["desc"], 0, 18, 1)
-        oled.text(st["alert"], 0, 32, 1)
-        draw_icon(st["icon_type"])
-        oled.hline(0, 48, 128, 1)
-        if status_msg:
-            oled.text(status_msg, 0, 52, 1)
-        else:
-            oled.text("L:Next  R:[OK!]" if is_dirty else "L:Next  R:Send", 0, 52, 1)
+        oled.text("* CAT VOUCHER *", 8, 3, 0)
+        oled.rect(8, 18, 112, 28, 1)
+        oled.text("MEAL TICKET : 1", 12, 23, 1)
+        oled.text("Feast For Kitty", 12, 34, 1)
+        for x in range(12, 118, 6):
+            oled.pixel(x, 29, 0)
+        oled.hline(0, 50, 128, 1)
+        oled.text("Hold R to TEAR!", 6, 54, 1)
         oled.show()
-        
-    render_weather()
-    last_l = 1
-    last_r = 1
-    
+
+    def play_tear_animation():
+        # 左右撕裂動畫 (細膩慢速裂開)
+        for offset in range(0, 36, 2):
+            oled.fill(0)
+            oled.fill_rect(0, 0, 128, 13, 1)
+            oled.text("* TEARING... *", 10, 3, 0)
+            oled.rect(8 - offset, 20, 50, 26, 1)
+            oled.text("MEAL", 12 - offset, 25, 1)
+            oled.rect(64 + offset, 20, 56, 26, 1)
+            oled.text("TICKET", 68 + offset, 25, 1)
+            oled.show()
+            time.sleep_ms(60)
+
+        # 慢速療癒進食動畫 (延長至 5 輪循環，每幀 600ms 慢嚼細嚥)
+        for cycle in range(5):
+            oled.fill(0)
+            oled.fill_rect(0, 0, 128, 12, 1)
+            oled.text(f"FEAST TIME ({cycle+1}/5)", 10, 2, 0)
+            oled.text(" (=^.^=) nyam! ", 6, 22, 1)
+            oled.text("   >===<  FISH! ", 6, 40, 1)
+            oled.show()
+            time.sleep_ms(600)
+
+            oled.fill(0)
+            oled.fill_rect(0, 0, 128, 12, 1)
+            oled.text(f"FEAST TIME ({cycle+1}/5)", 10, 2, 0)
+            oled.text(" ( ^o^ ) yummy!", 6, 22, 1)
+            oled.text("    )==(  CRUNCH", 6, 40, 1)
+            oled.show()
+            time.sleep_ms(600)
+
+    render_voucher()
     while True:
         vl = btn_left.value()
         vr = btn_right.value()
-        
-        # 左鍵切換天氣
-        if last_l == 1 and vl == 0:
-            time.sleep_ms(30)
-            if btn_left.value() == 0:
-                cur_idx = (cur_idx + 1) % len(WEATHER_STATES)
-                is_dirty = True
-                render_weather()
-                t_rel = time.time()
-                while btn_left.value() == 0 and time.time() - t_rel < 1:
-                    time.sleep_ms(20)
-                    
-        # 右鍵確認送出
-        if last_r == 1 and vr == 0:
-            time.sleep_ms(30)
-            if btn_right.value() == 0:
-                cnt += 1
-                st = WEATHER_STATES[cur_idx]
-                render_weather("Syncing Sheet...")
-                params = f"device=SkySync_ESP32&event=Weather_{st['id']}&count={cnt}&msg={st['message']}"
-                res, status = safe_gas_get(params, timeout=7)
-                if status == "OK":
-                    render_weather("Sheet Synced! OK")
-                elif status == "Offline":
-                    render_weather("Offline Mode")
-                else:
-                    render_weather("Upload Error!")
-                time.sleep(1.2)
-                is_dirty = False
-                render_weather()
-                t_rel = time.time()
-                while btn_right.value() == 0 and time.time() - t_rel < 1:
-                    time.sleep_ms(20)
-                    
-        last_l = vl
-        last_r = vr
-        time.sleep_ms(20)
 
-# ================= 5. 系統 2：Cloud Msg Board (雲端悄悄話看板) =================
-def run_cloud_msg():
-    current_note = "Fetching Cloud..."
-    sender_name = "Cloud"
-    reply_count = 0
-    
-    def fetch_latest():
-        nonlocal current_note, sender_name
-        data, status = safe_gas_get("action=get_msg", timeout=7)
-        if status == "OK" and isinstance(data, dict):
-            if data.get("status") == "success":
-                current_note = data.get("message", "No Message")
-                sender_name = data.get("sender", "Cloud")
+        # 雙鍵同按 -> 回主選單
+        if vl == 0 and vr == 0:
+            time.sleep_ms(500)
+            break
+
+        # 右鍵長按蓄力撕票 (時間拉長至 3.0 秒，儀式感滿滿)
+        TEAR_HOLD_SEC = 3.0
+        if vr == 0 and tickets > 0:
+            hold_start = time.time()
+            torn = False
+            while btn_right.value() == 0:
+                dur = time.time() - hold_start
+                pct = min(1.0, dur / TEAR_HOLD_SEC)
+                oled.fill(0)
+                oled.fill_rect(0, 0, 128, 13, 1)
+                oled.text("[ TEARING TICKET ]", 0, 3, 0)
+                oled.text(f"CHARGING: {int(pct*100)}%", 16, 20, 1)
+                oled.rect(14, 34, 100, 9, 1)
+                oled.fill_rect(16, 36, int(pct * 96), 5, 1)
+                oled.text("DON'T LET GO!", 16, 48, 1)
+                oled.show()
+                if pct >= 1.0:
+                    torn = True
+                    break
+                time.sleep_ms(40)
+
+            if torn:
+                tickets -= 1
+                # 震動白閃提示
+                for _ in range(2):
+                    oled.fill(1)
+                    oled.show()
+                    time.sleep_ms(60)
+                    oled.fill(0)
+                    oled.show()
+                    time.sleep_ms(60)
+                play_tear_animation()
+                
+                # 吃飽飽大滿足畫面
+                oled.fill(0)
+                oled.fill_rect(0, 0, 128, 13, 1)
+                oled.text("  TICKET USED   ", 8, 3, 0)
+                oled.text(" (=^w^=) FULL! ", 8, 20, 1)
+                oled.text("Cat is satisfied", 0, 35, 1)
+                oled.text("L+R: Back Menu", 10, 52, 1)
+                oled.show()
+                while True:
+                    if btn_left.value() == 0 and btn_right.value() == 0:
+                        time.sleep_ms(500)
+                        return
+                    time.sleep_ms(30)
             else:
-                current_note = "No new msg"
-        elif status == "Offline":
-            current_note = "Offline Mode"
-        else:
-            current_note = "Sync Error"
+                render_voucher()
 
-    def render_board(hint=None):
-        oled.fill(0)
-        oled.fill_rect(0, 0, 128, 13, 1)
-        oled.text(f"MSG: {sender_name[:10]}", 2, 3, 0)
-        
-        oled.text(">> Message <<", 0, 18, 1)
-        oled.text(str(current_note)[:16], 0, 32, 1)
-        
-        oled.hline(0, 48, 128, 1)
-        if hint:
-            oled.text(hint, 0, 52, 1)
-        else:
-            oled.text("L:Pull  R:ReplyOK", 0, 52, 1)
-        oled.show()
+        time.sleep_ms(30)
 
-    # 先呈現在畫面告知使用者，絕不黑屏
-    render_board("Fetching Cloud...")
-    fetch_latest()
-    render_board()
+# ================= 應用 3: 番茄鐘 (Pomodoro Focus) =================
+def run_pomodoro():
+    MODES = [
+        {"name": "25m Focus", "secs": 25 * 60},
+        {"name": "5m Break",  "secs": 5 * 60},
+        {"name": "10s Test",  "secs": 10}
+    ]
+    mode_idx = 0
+    time_left = MODES[mode_idx]["secs"]
+    is_running = False
+    last_tick = time.time()
     last_l = 1
     last_r = 1
-    last_auto_fetch = time.time()
-    
+
+    def render():
+        oled.fill(0)
+        oled.fill_rect(0, 0, 128, 13, 1)
+        cur = MODES[mode_idx]
+        oled.text(f"[ {cur['name']} ]", 4, 3, 0)
+        
+        mins = time_left // 60
+        secs = time_left % 60
+        oled.text(f">> {mins:02d}:{secs:02d} <<", 18, 20, 1)
+        
+        progress = max(0.0, min(1.0, 1.0 - (time_left / cur["secs"])))
+        oled.rect(14, 34, 100, 7, 1)
+        oled.fill_rect(16, 36, int(progress * 96), 3, 1)
+        
+        oled.hline(0, 48, 128, 1)
+        if is_running:
+            oled.text("R:Pause  L:Reset", 0, 52, 1)
+        else:
+            oled.text("L:Mode   R:Start", 0, 52, 1)
+        oled.show()
+
+    render()
+
     while True:
-        # 每 30 秒自動刷新一次
-        if time.time() - last_auto_fetch > 30:
-            fetch_latest()
-            render_board()
-            last_auto_fetch = time.time()
-            
         vl = btn_left.value()
         vr = btn_right.value()
-        
-        # 左鍵手動刷新留言 (Pull)
+
+        # 雙鍵同按 -> 回主選單
+        if vl == 0 and vr == 0:
+            time.sleep_ms(500)
+            break
+
+        if is_running:
+            now = time.time()
+            if now != last_tick:
+                time_left = max(0, time_left - (now - last_tick))
+                last_tick = now
+                render()
+                if time_left == 0:
+                    is_running = False
+                    for _ in range(3):
+                        oled.fill(1)
+                        oled.show()
+                        time.sleep_ms(100)
+                        oled.fill(0)
+                        oled.show()
+                        time.sleep_ms(100)
+                    oled.text("* POMODORO DONE *", 0, 24, 1)
+                    oled.text("FOCUS SUCCESS!", 10, 40, 1)
+                    oled.show()
+                    time.sleep(2)
+                    time_left = MODES[mode_idx]["secs"]
+                    render()
+
+        # L 鍵
         if last_l == 1 and vl == 0:
-            time.sleep_ms(30)
-            if btn_left.value() == 0:
-                render_board("Refreshing...")
-                fetch_latest()
-                last_auto_fetch = time.time()
-                render_board("Updated!")
-                time.sleep(1)
-                render_board()
-                t_rel = time.time()
-                while btn_left.value() == 0 and time.time() - t_rel < 1:
-                    time.sleep_ms(20)
-                    
-        # 右鍵回傳已收到 (Reply)
+            if is_running:
+                is_running = False
+                time_left = MODES[mode_idx]["secs"]
+            else:
+                mode_idx = (mode_idx + 1) % len(MODES)
+                time_left = MODES[mode_idx]["secs"]
+            render()
+            time.sleep_ms(200)
+
+        # R 鍵
         if last_r == 1 and vr == 0:
-            time.sleep_ms(30)
-            if btn_right.value() == 0:
-                reply_count += 1
-                render_board("Sending Reply...")
-                
-                t_rel = time.time()
-                while btn_right.value() == 0 and time.time() - t_rel < 1:
-                    time.sleep_ms(20)
-                    
-                params = f"device=SkyDeck_ESP32&event=Msg_Ack&count={reply_count}&msg=Roger_That_Received"
-                _, status = safe_gas_get(params, timeout=7)
-                if status == "OK":
-                    render_board("Reply Sent! OK")
-                elif status == "Offline":
-                    render_board("Offline")
-                else:
-                    render_board("Send Failed!")
-                    
-                time.sleep(1.2)
-                render_board()
-                    
+            is_running = not is_running
+            last_tick = time.time()
+            render()
+            time.sleep_ms(200)
+
         last_l = vl
         last_r = vr
-        time.sleep_ms(20)
+        time.sleep_ms(30)
 
-# ================= 主程式進入點 =================
+# ================= 應用 4: 極客時鐘與碼表 (Geek Clock & Stopwatch) =================
+def run_clock():
+    start_ms = time.ticks_ms()
+    stopwatch_ms = 0
+    sw_running = False
+    sw_start = 0
+    last_l = 1
+    last_r = 1
+
+    while True:
+        vl = btn_left.value()
+        vr = btn_right.value()
+
+        # 雙鍵同按 -> 回主選單
+        if vl == 0 and vr == 0:
+            time.sleep_ms(500)
+            break
+
+        # L 鍵: 碼表歸零
+        if last_l == 1 and vl == 0:
+            stopwatch_ms = 0
+            if sw_running:
+                sw_start = time.ticks_ms()
+            time.sleep_ms(200)
+
+        # R 鍵: 碼表 啟動 / 暫停
+        if last_r == 1 and vr == 0:
+            sw_running = not sw_running
+            if sw_running:
+                sw_start = time.ticks_ms() - stopwatch_ms
+            time.sleep_ms(200)
+
+        if sw_running:
+            stopwatch_ms = time.ticks_diff(time.ticks_ms(), sw_start)
+
+        # 系統累計運行時間 (Uptime)
+        uptime_sec = time.ticks_diff(time.ticks_ms(), start_ms) // 1000
+        up_m = uptime_sec // 60
+        up_s = uptime_sec % 60
+
+        # 碼表時間
+        sw_sec = stopwatch_ms // 1000
+        sw_d = (stopwatch_ms % 1000) // 100
+
+        oled.fill(0)
+        oled.fill_rect(0, 0, 128, 13, 1)
+        oled.text("[ GEEK CLOCK ]", 8, 3, 0)
+        
+        oled.text(f"UPTIME:  {up_m:02d}:{up_s:02d}", 8, 20, 1)
+        oled.text(f"STOPW: {sw_sec//60:02d}:{sw_sec%60:02d}.{sw_d}", 8, 34, 1)
+        
+        oled.hline(0, 48, 128, 1)
+        sw_tag = "Pause" if sw_running else "Start"
+        oled.text(f"L:Zero   R:{sw_tag}", 0, 52, 1)
+        oled.show()
+
+        last_l = vl
+        last_r = vr
+        time.sleep_ms(50)
+
+# ================= 主流程進入點 =================
 def main():
-    print("=============================================")
-    print("  SkyDeck OS v1.0 - Multi-System IoT Platform")
-    print("=============================================")
+    gc.collect()
+    play_boot_ceremony()
     
-    # 儀式 1：超酷炫開機動畫
-    play_ceremony_welcome()
-    
-    # 儀式 2：雙 Wi-Fi 選單連線
-    select_and_connect_wifi()
-    
-    # 儀式 3：多系統選擇
-    selected_app = select_system()
-    
-    # 進入對應系統
-    if selected_app == "SKY_SYNC":
-        print(">> 啟動系統 1: SkySync 天氣鏡像儀")
-        run_skysync()
-    elif selected_app == "CLOUD_MSG":
-        print(">> 啟動系統 2: Cloud Msg Board 雲端悄悄話看板")
-        run_cloud_msg()
-
+    while True:
+        gc.collect()
+        choice = show_main_menu()
+        if choice == 0:
+            run_dino()
+        elif choice == 1:
+            run_cat_voucher()
+        elif choice == 2:
+            run_pomodoro()
+        elif choice == 3:
+            run_clock()
 
 if __name__ == "__main__":
     main()
