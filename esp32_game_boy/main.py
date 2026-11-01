@@ -55,12 +55,13 @@ def play_boot_ceremony():
     oled.show()
     time.sleep(1.2)
 
-# ================= 3. 主選單 (4 大應用) =================
+# ================= 3. 主選單 (5 大應用) =================
 MENU_ITEMS = [
     {"title": "1. DINO GAME",  "desc": "Jump & Dodge"},
-    {"title": "2. CAT VOUCHER","desc": "Tear & Feast"},
-    {"title": "3. POMODORO",   "desc": "Focus Timer"},
-    {"title": "4. GEEK CLOCK", "desc": "Stopwatch & Time"}
+    {"title": "2. RACING GAME","desc": "Formula Turbo"},
+    {"title": "3. CAT VOUCHER","desc": "Tear & Feast"},
+    {"title": "4. POMODORO",   "desc": "Focus Timer"},
+    {"title": "5. GEEK CLOCK", "desc": "Stopwatch & Time"}
 ]
 
 def show_main_menu():
@@ -201,7 +202,157 @@ def run_dino():
 
         time.sleep_ms(25)
 
-# ================= 應用 2: 貓咪餐券 (Cat Voucher - 極致儀式感版) =================
+# ================= 應用 2: 極速賽車 (Retro Racing 8-Bit) =================
+def run_racing():
+    ROAD_L = 20
+    ROAD_R = 108
+    ROAD_W = ROAD_R - ROAD_L
+    LANES = [ROAD_L + 12, ROAD_L + int(ROAD_W * 0.5), ROAD_R - 12] # 左、中、右三線道
+
+    player_lane = 1      # 預設中間車道
+    player_y = 48        # 玩家車輛固定底部
+    car_w = 12
+    car_h = 14
+
+    # 敵車 (障礙車輛)
+    enemies = []
+    
+    score = 0
+    speed = 4.0
+    game_over = False
+    road_dash_offset = 0
+
+    last_l = 1
+    last_r = 1
+
+    def draw_f1_car(x, y, is_player=True):
+        """繪製精緻的 8-Bit 方程式賽車點陣"""
+        x = int(x - car_w // 2)
+        y = int(y)
+        # 車身主體
+        oled.fill_rect(x + 4, y, 4, car_h, 1)
+        # 車頭翼板
+        oled.fill_rect(x + 2, y + 1, 8, 2, 1)
+        # 駕駛艙座
+        oled.pixel(x + 5, y + 5, 0 if is_player else 1)
+        oled.pixel(x + 6, y + 5, 0 if is_player else 1)
+        # 前輪 (左/右)
+        oled.fill_rect(x, y + 2, 2, 3, 1)
+        oled.fill_rect(x + 10, y + 2, 2, 3, 1)
+        # 後輪 (左/右，較寬)
+        oled.fill_rect(x, y + car_h - 4, 3, 4, 1)
+        oled.fill_rect(x + 9, y + car_h - 4, 3, 4, 1)
+        # 尾翼
+        oled.fill_rect(x + 2, y + car_h - 2, 8, 2, 1)
+
+    while True:
+        vl = btn_left.value()
+        vr = btn_right.value()
+
+        # 雙鍵同按 -> 回主選單
+        if vl == 0 and vr == 0:
+            time.sleep_ms(500)
+            break
+
+        # 左鍵 (GPIO 18): 車子往左車道變換
+        if last_l == 1 and vl == 0 and not game_over:
+            if player_lane > 0:
+                player_lane -= 1
+            time.sleep_ms(100)
+
+        # 右鍵 (GPIO 4): 車子往右車道變換
+        if last_r == 1 and vr == 0 and not game_over:
+            if player_lane < len(LANES) - 1:
+                player_lane += 1
+            time.sleep_ms(100)
+
+        last_l = vl
+        last_r = vr
+
+        if not game_over:
+            # 道路虛線向下捲動效果
+            road_dash_offset = (road_dash_offset + int(speed)) % 16
+
+            # 隨機產生敵車
+            if len(enemies) == 0 or (enemies[-1]["y"] > 24 and random.random() < 0.25):
+                lane_choice = random.randint(0, len(LANES) - 1)
+                enemies.append({"lane": lane_choice, "y": -car_h})
+
+            # 更新敵車位置與計分
+            for e in enemies:
+                e["y"] += speed
+
+            # 超車得分
+            if enemies and enemies[0]["y"] > HEIGHT:
+                enemies.pop(0)
+                score += 1
+                # 速度漸進提升
+                speed = min(9.0, 4.0 + (score // 5) * 0.5)
+
+            # 碰撞檢測
+            p_center_x = LANES[player_lane]
+            for e in enemies:
+                e_center_x = LANES[e["lane"]]
+                # 檢查車道重疊與 Y 軸距離
+                if e["lane"] == player_lane and (e["y"] + car_h > player_y and e["y"] < player_y + car_h):
+                    game_over = True
+                    break
+
+            # 繪製畫面
+            oled.fill(0)
+
+            # 賽道左右邊界護欄 (實線 + 斑馬外緣)
+            oled.vline(ROAD_L, 0, HEIGHT, 1)
+            oled.vline(ROAD_R, 0, HEIGHT, 1)
+            for gy in range(0, HEIGHT, 8):
+                oled.pixel(ROAD_L - 2, gy, 1)
+                oled.pixel(ROAD_R + 2, gy, 1)
+
+            # 賽道中間雙虛線
+            lane_w = ROAD_W // 3
+            dash_x1 = ROAD_L + lane_w
+            dash_x2 = ROAD_L + lane_w * 2
+            for dy in range(-16 + road_dash_offset, HEIGHT, 16):
+                oled.fill_rect(dash_x1, dy, 1, 8, 1)
+                oled.fill_rect(dash_x2, dy, 1, 8, 1)
+
+            # 繪製敵車
+            for e in enemies:
+                if e["y"] > -car_h and e["y"] < HEIGHT:
+                    draw_f1_car(LANES[e["lane"]], e["y"], is_player=False)
+
+            # 繪製玩家賽車
+            draw_f1_car(LANES[player_lane], player_y, is_player=True)
+
+            # 左側垂直顯示分數與檔位
+            oled.text(f"S", 2, 4, 1)
+            oled.text(f"{score//10}", 2, 16, 1)
+            oled.text(f"{score%10}", 2, 26, 1)
+            oled.text("KM", 112, 10, 1)
+            oled.text(f"{int(speed*20)}", 112, 22, 1)
+
+            oled.show()
+
+        else:
+            # 撞車 Game Over
+            oled.fill_rect(16, 14, 96, 36, 0)
+            oled.rect(16, 14, 96, 36, 1)
+            oled.text("CRASHED!", 32, 18, 1)
+            oled.text(f"SCORE: {score}", 30, 28, 1)
+            oled.text("L/R:RESTART", 20, 38, 1)
+            oled.show()
+
+            if (last_l == 1 and vl == 0) or (last_r == 1 and vr == 0):
+                score = 0
+                speed = 4.0
+                enemies = []
+                player_lane = 1
+                game_over = False
+                time.sleep_ms(200)
+
+        time.sleep_ms(30)
+
+# ================= 應用 3: 貓咪餐券 (Cat Voucher - 極致儀式感版) =================
 def run_cat_voucher():
     tickets = 1
     
@@ -471,10 +622,12 @@ def main():
         if choice == 0:
             run_dino()
         elif choice == 1:
-            run_cat_voucher()
+            run_racing()
         elif choice == 2:
-            run_pomodoro()
+            run_cat_voucher()
         elif choice == 3:
+            run_pomodoro()
+        elif choice == 4:
             run_clock()
 
 if __name__ == "__main__":
