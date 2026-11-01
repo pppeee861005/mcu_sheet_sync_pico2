@@ -55,14 +55,15 @@ def play_boot_ceremony():
     oled.show()
     time.sleep(1.2)
 
-# ================= 3. 主選單 (6 大應用) =================
+# ================= 3. 主選單 (7 大應用) =================
 MENU_ITEMS = [
     {"title": "1. DINO GAME",  "desc": "Jump & Dodge"},
     {"title": "2. RACING GAME","desc": "Formula Turbo"},
     {"title": "3. POKEMON BATTLE","desc": "Pikachu vs Eevee"},
-    {"title": "4. CAT VOUCHER","desc": "Tear & Feast"},
-    {"title": "5. POMODORO",   "desc": "Focus Timer"},
-    {"title": "6. GEEK CLOCK", "desc": "Stopwatch & Time"}
+    {"title": "4. TAMAGOTCHI", "desc": "Virtual Pet Care"},
+    {"title": "5. CAT VOUCHER","desc": "Tear & Feast"},
+    {"title": "6. POMODORO",   "desc": "Focus Timer"},
+    {"title": "7. GEEK CLOCK", "desc": "Stopwatch & Time"}
 ]
 
 def show_main_menu():
@@ -509,7 +510,168 @@ def run_pokemon():
         last_r = vr
         time.sleep_ms(30)
 
-# ================= 應用 4: 貓咪餐券 (Cat Voucher - 極致儀式感版) =================
+# ================= 應用 4: 拓麻歌子經典電子寵物 (Tamagotchi Pet) =================
+def run_tamagotchi():
+    hunger = 4       # 飽足感 (0~5 顆心)
+    happy = 4        # 快樂值 (0~5 顆心)
+    poop_count = 0   # 便便數量
+    is_sleeping = False
+    
+    pet_actions = ["FEED", "PLAY", "CLEAN", "SLEEP"]
+    cur_act = 0
+    
+    anim_frame = 0
+    last_tick = time.time()
+    last_l = 1
+    last_r = 1
+
+    def draw_hearts(x, y, count):
+        for i in range(5):
+            if i < count:
+                oled.fill_rect(x + i * 8, y + 1, 5, 4, 1)
+                oled.pixel(x + i * 8 + 2, y + 4, 1)
+            else:
+                oled.rect(x + i * 8, y + 1, 5, 4, 1)
+
+    def draw_pet(x, y, frame):
+        """繪製經典像素小怪獸電子寵物 (左右蹦跳動畫)"""
+        # 睡覺狀態
+        if is_sleeping:
+            oled.fill_rect(x, y + 6, 20, 10, 1)
+            oled.text("Zzz", x + 18, y - 4, 1)
+            return
+
+        # 正常站立 / 歡呼幀
+        bounce = 2 if frame % 2 == 1 else 0
+        # 身體 (圓滾滾)
+        oled.fill_rect(x + 2, y + bounce, 16, 14, 1)
+        oled.fill_rect(x, y + 3 + bounce, 20, 8, 1)
+        # 眼睛 (閃爍)
+        oled.pixel(x + 5, y + 5 + bounce, 0)
+        oled.pixel(x + 14, y + 5 + bounce, 0)
+        # 嘴巴 (笑臉)
+        oled.pixel(x + 9, y + 9 + bounce, 0)
+        oled.pixel(x + 10, y + 9 + bounce, 0)
+        # 耳朵
+        oled.fill_rect(x + 3, y - 3 + bounce, 3, 3, 1)
+        oled.fill_rect(x + 14, y - 3 + bounce, 3, 3, 1)
+        # 小腳丫
+        if frame % 2 == 0:
+            oled.fill_rect(x + 4, y + 14, 3, 2, 1)
+            oled.fill_rect(x + 13, y + 14, 3, 2, 1)
+        else:
+            oled.fill_rect(x + 2, y + 13, 3, 2, 1)
+            oled.fill_rect(x + 15, y + 13, 3, 2, 1)
+
+    def draw_poop(x, y):
+        """繪製一坨可愛的便便"""
+        oled.fill_rect(x + 2, y, 4, 2, 1)
+        oled.fill_rect(x + 1, y + 2, 6, 2, 1)
+        oled.fill_rect(x, y + 4, 8, 3, 1)
+
+    def render_screen():
+        oled.fill(0)
+        # 頂部狀態列 (HUNGER & HAPPY 心心)
+        oled.text("F:", 2, 2, 1)
+        draw_hearts(18, 2, hunger)
+        oled.text("H:", 66, 2, 1)
+        draw_hearts(82, 2, happy)
+        oled.hline(0, 11, 128, 1)
+
+        # 中間主畫面 (寵物 + 便便)
+        pet_x = 54
+        pet_y = 22
+        draw_pet(pet_x, pet_y, anim_frame)
+
+        if poop_count > 0:
+            draw_poop(96, 32)
+            if poop_count > 1:
+                draw_poop(108, 32)
+
+        # 底部動作選單
+        oled.hline(0, 48, 128, 1)
+        act_name = pet_actions[cur_act]
+        oled.text(f">{act_name}  L:Chg R:Do"[:16], 2, 52, 1)
+        oled.show()
+
+    render_screen()
+
+    while True:
+        vl = btn_left.value()
+        vr = btn_right.value()
+
+        # 雙鍵同按 -> 回主選單
+        if vl == 0 and vr == 0:
+            time.sleep_ms(500)
+            break
+
+        # 時間自然流逝 (每 15 秒飢餓度扣 1，有機率大便)
+        now = time.time()
+        if now - last_tick > 12:
+            last_tick = now
+            if not is_sleeping:
+                hunger = max(0, hunger - 1)
+                happy = max(0, happy - 1)
+                if hunger <= 1 or poop_count > 0:
+                    happy = max(0, happy - 1)
+                if random.random() < 0.4 and poop_count < 2:
+                    poop_count += 1
+            render_screen()
+
+        # 動畫跳動循環
+        anim_frame = (anim_frame + 1) % 2
+
+        # 左鍵 (GPIO 18): 切換操作動作 (FEED / PLAY / CLEAN / SLEEP)
+        if last_l == 1 and vl == 0:
+            cur_act = (cur_act + 1) % len(pet_actions)
+            render_screen()
+            time.sleep_ms(150)
+
+        # 右鍵 (GPIO 4): 執行選中的動作
+        if last_r == 1 and vr == 0:
+            act = pet_actions[cur_act]
+            if act == "FEED":
+                if hunger < 5:
+                    hunger = min(5, hunger + 2)
+                    oled.fill(0)
+                    oled.text("FEEDING CAKE!", 16, 20, 1)
+                    oled.text("(=^O^=) DELICIOUS", 2, 38, 1)
+                    oled.show()
+                    time.sleep(1.2)
+            elif act == "PLAY":
+                if not is_sleeping:
+                    happy = min(5, happy + 2)
+                    oled.fill(0)
+                    oled.text("PLAYING BALL!", 16, 20, 1)
+                    oled.text("(\\^o^/) YAY HAPPY", 0, 38, 1)
+                    oled.show()
+                    time.sleep(1.2)
+            elif act == "CLEAN":
+                if poop_count > 0:
+                    poop_count = 0
+                    happy = min(5, happy + 1)
+                    oled.fill(0)
+                    oled.text("CLEANING POOP!", 10, 20, 1)
+                    oled.text("* SPARKLE CLEAN *", 0, 38, 1)
+                    oled.show()
+                    time.sleep(1.2)
+            elif act == "SLEEP":
+                is_sleeping = not is_sleeping
+                oled.fill(0)
+                txt = "LIGHTS OFF Zzz" if is_sleeping else "WAKE UP SUNNY!"
+                oled.text(txt, 12, 28, 1)
+                oled.show()
+                time.sleep(1.0)
+
+            render_screen()
+            time.sleep_ms(150)
+
+        last_l = vl
+        last_r = vr
+        render_screen()
+        time.sleep_ms(400)
+
+# ================= 應用 5: 貓咪餐券 (Cat Voucher - 極致儀式感版) =================
 def run_cat_voucher():
     tickets = 1
     
@@ -783,10 +945,12 @@ def main():
         elif choice == 2:
             run_pokemon()
         elif choice == 3:
-            run_cat_voucher()
+            run_tamagotchi()
         elif choice == 4:
-            run_pomodoro()
+            run_cat_voucher()
         elif choice == 5:
+            run_pomodoro()
+        elif choice == 6:
             run_clock()
 
 if __name__ == "__main__":
