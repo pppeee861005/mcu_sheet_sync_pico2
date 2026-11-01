@@ -22,7 +22,7 @@ from machine import Pin, I2C
 from ssd1306 import SSD1306_I2C
 
 # ================= 雲端 API 設定 =================
-GAS_SCRIPT_ID = "AKfycbxoD1kKYdviVGMdkKKrEJbMcynRfzQEnFfguewhckH4DtQ4SiHoOVoot-wicooF000u"
+GAS_SCRIPT_ID = "AKfycbzQsSR4uJahVTjEIPNrKjdM-7PTsLZusn9LWeKCodQBbBLU1RcgGGMjStzuprmJhiEU"
 
 def safe_gas_get(params="", timeout=7):
     """
