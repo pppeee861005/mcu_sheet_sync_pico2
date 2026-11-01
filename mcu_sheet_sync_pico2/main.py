@@ -225,51 +225,79 @@ def run_sys_fortune():
         if not options_list:
             options_list = FORTUNE_OPTIONS
             
+        # ── 階段 1：神秘水晶球能量匯聚 (Occult Energy Charging) ──
         lcd.clear()
-        lcd_p(f"Rolling {category}...", ">> ?? ?? ?? <<")
-        
-        # 類似拉霸機的減速滾動抽籤
-        delays = [50, 50, 70, 90, 120, 160, 220, 300]
+        # 兩側向中央收束的能量符文
+        runes = [".", "+", "*", "#", "@"]
+        for r_char in runes:
+            lcd.move_to(0, 0)
+            lcd.putstr(f" {r_char*3} ORACLE {r_char*3} "[:16].center(16))
+            lcd.move_to(0, 1)
+            lcd.putstr("CHARGING SOUL..."[:16].center(16))
+            time.sleep_ms(180)
+
+        # 背光心跳呼吸 (彷彿神諭降臨的閃爍)
+        for _ in range(2):
+            lcd.hal_backlight_off()
+            time.sleep_ms(120)
+            lcd.hal_backlight_on()
+            time.sleep_ms(150)
+
+        # ── 階段 2：命運齒輪瘋狂轉動 (Fate Gears Spinning) ──
+        # 隨機符號漩渦預熱
+        mystic_symbols = [" / ", " - ", " \\ ", " | "]
+        for s in mystic_symbols * 2:
+            lcd.move_to(0, 0)
+            lcd.putstr(f"FATE AWAKENING {s}")
+            lcd.move_to(0, 1)
+            lcd.putstr(">> ?? ?? ?? <<".center(16))
+            time.sleep_ms(90)
+
+        # 由極速減速至定格 (拉霸命運減速)
+        delays = [40, 40, 50, 60, 80, 110, 150, 210, 300, 450, 650]
         chosen = options_list[0]
         
-        for d in delays:
-            chosen = options_list[time.ticks_ms() % len(options_list)]
+        for idx, d in enumerate(delays):
+            chosen = options_list[(time.ticks_ms() + idx) % len(options_list)]
+            lcd.move_to(0, 0)
+            lcd.putstr("= DECIDING FATE ="[:16].center(16))
             lcd.move_to(0, 1)
-            lcd.putstr(f"> {chosen[:13]} <"[:16].center(16))
+            # 伴隨左右括弧逼近鎖定
+            lcd.putstr(f"> {chosen[:12]} <"[:16].center(16))
             time.sleep_ms(d)
 
-        # 定格閃爍
-        for _ in range(2):
-            lcd.move_to(0, 0)
-            lcd.putstr(f"*** {category.upper()[:10]} ***"[:16].center(16))
+        # ── 階段 3：神諭降臨 (The Revelation / Holy Light) ──
+        # 莊嚴的背光三連閃 (神聖揭曉)
+        for _ in range(3):
+            lcd.hal_backlight_off()
             time.sleep_ms(100)
-            lcd.move_to(0, 0)
-            lcd.putstr("                ")
+            lcd.hal_backlight_on()
             time.sleep_ms(100)
 
+        lcd.clear()
         lcd.move_to(0, 0)
-        lcd.putstr(f"* DESTINY WON *"[:16].center(16))
+        lcd.putstr("*** ORACLE SAYS ***"[:16].center(16))
         lcd.move_to(0, 1)
-        lcd.putstr(f"> {chosen[:12]} <"[:16].center(16))
-        time.sleep(1.8)
+        lcd.putstr(f">> {chosen[:10]} <<"[:16].center(16))
+        time.sleep(2.2)
 
-        # 寫回 Google 試算表留念
-        lcd_p("Logging Destiny.", "Sync to Sheet...")
+        # ── 階段 4：銘刻命運於雲端試算表 (Engrave to Cloud) ──
+        lcd_p("Engraving Fate..", "Into Holy Sheet.")
         payload = {
             "action": "log_event",
             "device": "Pico2W",
-            "event": "Cloud_Choice",
-            "message": f"Picked: {chosen}",
+            "event": "Mystic_Oracle",
+            "message": f"Fate: {chosen}",
             "ts": time.time()
         }
         res, code = safe_gas_request(payload=payload)
         if code == "OK":
-            lcd_p("Sheet Synced! OK", chosen[:16])
+            lcd_p("Fate Inscribed!", chosen[:16])
         else:
-            lcd_p("Offline Saved!", chosen[:16])
-        time.sleep(2)
+            lcd_p("Oracle Sealed!", chosen[:16])
+        time.sleep(2.0)
 
-        lcd_p(f"Last:{chosen[:11]}", "L:Preset R:Cloud")
+        lcd_p(f"Fate:{chosen[:11]}", "L:Preset R:Cloud")
 
     def handle_cloud_choice():
         """從 Google 試算表抓取逗號隔開的多個選項並隨機挑選一個"""
