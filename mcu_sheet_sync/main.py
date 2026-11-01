@@ -627,19 +627,37 @@ def run_cat_ticket():
         oled.show()
 
     def play_tear_and_feast():
-        # 儀式 1：撕票動態鋸齒動畫 (Tearing)
-        for step in range(0, 64, 8):
+        # 儀式 1：細緻優雅的撕票動態鋸齒動畫 (慢速細緻撕開，儀式感十足)
+        # 步驟 1-A：中央鋸齒裂痕逐點延伸撕開
+        oled.fill(0)
+        oled.rect(2, 16, 60, 30, 1)
+        oled.text("TICK", 10, 26, 1)
+        oled.rect(66, 16, 60, 30, 1)
+        oled.text("ET#1", 72, 26, 1)
+        # 鋸齒裂痕自上而下逐段裂開
+        for y in range(14, 48, 2):
+            zig_x = 64 + (2 if (y // 3) % 2 == 0 else -2)
+            oled.pixel(zig_x, y, 1)
+            oled.show()
+            time.sleep_ms(30)
+        time.sleep(0.4)
+        
+        # 步驟 1-B：兩半票券緩緩分離向兩側滑出
+        for step in range(0, 68, 3):
             oled.fill(0)
-            # 左半票向左退、右半票向右退
+            # 左半票向左滑
             oled.rect(2 - step, 16, 60, 30, 1)
             oled.text("TICK", 10 - step, 26, 1)
+            # 右半票向右滑
             oled.rect(66 + step, 16, 60, 30, 1)
             oled.text("ET#1", 72 + step, 26, 1)
-            # 中央撕裂虛線
-            for y in range(0, 64, 6):
+            # 殘留鋸齒裂線微光
+            for y in range(16, 46, 4):
                 oled.pixel(64, y, 1)
             oled.show()
-            time.sleep_ms(40)
+            time.sleep_ms(55)
+            
+        time.sleep(0.3)
             
         # 儀式 2：優雅漫享進食四部曲 (放慢節奏，儀式感拉滿！)
         feast_steps = [
