@@ -641,43 +641,24 @@ def run_cat_ticket():
             oled.show()
             time.sleep_ms(40)
             
-        # 儀式 2：暴風進食三部曲 (YUMMY / MEOW / PURR)
-        faces = [
-            ("(=^O^=) NOM NOM!", "Eating Feast..."),
-            ("(=^o^=) SO YUMMY!", "Delicious Cat Can"),
-            ("(=^w^=) PURRR~ <3", "Super Happy Meow!")
+        # 儀式 2：優雅漫享進食四部曲 (放慢節奏，儀式感拉滿！)
+        feast_steps = [
+            ("OPENING CAN...", ">> Smells Good! <<", 1.8),
+            ("(=^O^=) NOM NOM!", "Eating Delicacy...", 2.0),
+            ("(=^o^=) SO YUMMY!", "Delicious Feast!", 2.2),
+            ("(=^w^=) PURRR~ <3", "Full & Satisfied!", 2.2)
         ]
-        for face, subtitle in faces:
+        for title, sub, delay_s in feast_steps:
             oled.fill(0)
             oled.fill_rect(0, 0, 128, 13, 1)
             oled.text("* CAT FEAST! *", 10, 3, 0)
-            oled.text(face, 6, 24, 1)
-            oled.text(subtitle, 4, 40, 1)
+            oled.text(title, 4, 24, 1)
+            oled.text(sub, 2, 40, 1)
             oled.show()
-            time.sleep(0.7)
+            time.sleep(delay_s)
             
-        # 儀式 3：雲端試算表打卡開飯紀錄
-        oled.fill(0)
-        oled.fill_rect(0, 0, 128, 13, 1)
-        oled.text("[ CLOUD SYNC ]", 10, 3, 0)
-        oled.text("Syncing Sheet...", 4, 26, 1)
-        oled.text("Reporting Meal!", 4, 40, 1)
-        oled.show()
-        
-        try:
-            import gc
-            gc.collect()
-            wlan = network.WLAN(network.STA_IF)
-            if wlan.isconnected():
-                url = f"{GAS_URL}?device=CatTicket_ESP32&event=Meal_Redeemed&count=1&msg=Ate_Delicious_Canned_Food"
-                r = urequests.get(url)
-                r.close()
-                oled.text("Sync OK!", 70, 52, 1)
-            else:
-                oled.text("Offline OK", 60, 52, 1)
-        except Exception as e:
-            print("Cat upload error:", e)
-        time.sleep(1.2)
+        # 純單機儀式感閉環：無需網路傳輸，定格幸福感
+        time.sleep(0.8)
 
     render_voucher_ready()
     last_l = 1
