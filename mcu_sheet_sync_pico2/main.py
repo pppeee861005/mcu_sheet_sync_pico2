@@ -167,8 +167,9 @@ def auto_wifi():
 
 # ================= 5. 主選單 =================
 SYSTEMS = [
-    {"name": "1.Sheet Sync", "desc": "Push Counter"},
-    {"name": "2.CloudMsg",   "desc": "Pull Only (Read)"}
+    {"name": "1.Fortune Dice", "desc": "Lunch & Fate"},
+    {"name": "2.CloudMsg",     "desc": "L:Pull   R:Push"},
+    {"name": "3.Sheet Sync",   "desc": "Push Counter"}
 ]
 
 def main_menu():
@@ -198,7 +199,102 @@ def main_menu():
         last_r = vr
         time.sleep_ms(20)
 
-# ================= 6. 系統 1: Sheet Sync (上報同步) =================
+# ================= 6. 系統 1: 雲端命運籤筒與午餐選擇機 (Fortune & Lunch Dice) =================
+# 預設午餐與命運籤詩清單 (當雲端離線或抽籤時輪播用)
+FORTUNE_OPTIONS = [
+    "Beef Noodles",     # 牛肉麵
+    "Pork Bento",       # 排骨便當
+    "McDonald's",       # 麥當勞
+    "Ramen & Gyoza",    # 拉麵煎餃
+    "Bubble Tea Time",  # 珍奶時刻
+    "Curry Rice",       # 咖哩飯
+    "Subway Healthy",   # 潛艇堡
+    "Fried Chicken",    # 炸雞大餐
+    "Sushi Feast",      # 壽司生魚片
+    "Dine with Cat!",   # 陪貓貓吃飯
+    "Great Luck Day!",  # 大吉上上籤
+    "Pizza Party!"      # 披薩大餐
+]
+
+def run_sys_fortune():
+    lcd_p("[Fortune Dice]", "L:Lunch  R:Lucky")
+    last_l = 1
+    last_r = 1
+
+    def roll_dice_animation(category="Lunch"):
+        # 1. 骰子高速滾動動畫 (問號與選項快速閃動)
+        lcd.clear()
+        lcd_p(f"Rolling {category}...", ">> ?? ?? ?? <<")
+        
+        # 速度由快到慢的儀式感抽籤滾動 (類似拉霸機)
+        delays = [50, 50, 70, 90, 120, 160, 220, 300]
+        chosen = FORTUNE_OPTIONS[0]
+        
+        for d in delays:
+            chosen = FORTUNE_OPTIONS[time.ticks_ms() % len(FORTUNE_OPTIONS)]
+            lcd.move_to(0, 1)
+            lcd.putstr(f"> {chosen[:13]} <"[:16].center(16))
+            time.sleep_ms(d)
+
+        # 2. 定格慶祝
+        for _ in range(2):
+            lcd.move_to(0, 0)
+            lcd.putstr(f"*** {category.upper()} ***"[:16].center(16))
+            time.sleep_ms(100)
+            lcd.move_to(0, 0)
+            lcd.putstr("                ")
+            time.sleep_ms(100)
+
+        lcd.move_to(0, 0)
+        lcd.putstr(f"* DESTINY WON *"[:16].center(16))
+        lcd.move_to(0, 1)
+        lcd.putstr(f"> {chosen[:12]} <"[:16].center(16))
+        time.sleep(1.5)
+
+        # 3. 寫回 Google 試算表留念
+        lcd_p("Logging Destiny.", "Sync to Sheet...")
+        payload = {
+            "action": "log_event",
+            "device": "Pico2W",
+            "event": "Fortune_Dice",
+            "message": f"Chosen: {chosen}",
+            "ts": time.time()
+        }
+        res, code = safe_gas_request(payload=payload)
+        if code == "OK":
+            lcd_p("Sheet Synced! OK", chosen[:16])
+        else:
+            lcd_p("Offline Saved!", chosen[:16])
+        time.sleep(2)
+
+        # 返回待機
+        lcd_p(f"Last:{chosen[:11]}", "L:Lunch  R:Lucky")
+
+    while True:
+        vl = btn_left.value()
+        vr = btn_right.value()
+
+        # 雙鍵同按 -> 回主選單
+        if vl == 0 and vr == 0:
+            lcd_p("Exiting System..", "Back to Menu")
+            time.sleep_ms(600)
+            break
+
+        # 左鍵 (GP14): 抽午餐
+        if last_l == 1 and vl == 0:
+            roll_dice_animation("Lunch")
+            time.sleep_ms(200)
+
+        # 右鍵 (GP16): 抽今日運勢 / 籤詩
+        if last_r == 1 and vr == 0:
+            roll_dice_animation("Fate")
+            time.sleep_ms(200)
+
+        last_l = vl
+        last_r = vr
+        time.sleep_ms(20)
+
+# ================= 7. 系統 2: Sheet Sync (上報同步) =================
 def run_sys_sync():
     count = 0
     lcd_p("[1] Sheet Sync", f"L:+1  R:Push [{count}]")
@@ -330,9 +426,11 @@ def main():
     while True:
         choice = main_menu()
         if choice == 0:
-            run_sys_sync()
+            run_sys_fortune()
         elif choice == 1:
             run_sys_msg()
+        elif choice == 2:
+            run_sys_sync()
 
 if __name__ == "__main__":
     main()
