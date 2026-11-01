@@ -210,7 +210,8 @@ def select_and_connect_wifi():
 # ================= 3. 多系統選擇選單 (System Selector) =================
 SYSTEMS = [
     {"id": "SKY_SYNC", "title": "1. SkySync Weather", "desc": "Weather Sync App"},
-    {"id": "CLOUD_MSG", "title": "2. Cloud Msg Board", "desc": "Live Sheet Notes"}
+    {"id": "CLOUD_MSG", "title": "2. Cloud Msg Board", "desc": "Live Sheet Notes"},
+    {"id": "POMODORO", "title": "3. Pomodoro Tracker", "desc": "Focus & Sheet Log"}
 ]
 
 def select_system():
@@ -220,10 +221,8 @@ def select_system():
         oled.fill_rect(0, 0, 128, 13, 1)
         oled.text("[ SELECT SYSTEM ]", 2, 3, 0)
         
-        p1 = "> " if selected == 0 else "  "
-        oled.text(p1 + "SkySync Weather", 0, 20, 1)
-        p2 = "> " if selected == 1 else "  "
-        oled.text(p2 + "Cloud Msg Board", 0, 34, 1)
+        oled.text(f"> {SYSTEMS[selected]['title']}", 0, 20, 1)
+        oled.text(f"  {SYSTEMS[selected]['desc']}", 0, 34, 1)
         
         oled.hline(0, 48, 128, 1)
         oled.text("L:Next    R:Enter", 0, 52, 1)
@@ -463,6 +462,135 @@ def run_cloud_msg():
         last_r = vr
         time.sleep_ms(20)
 
+
+# ================= 6. 系統 3：Pomodoro Tracker (番茄鐘專注打卡機) =================
+POMO_MODES = [
+    {"name": "25m Focus", "secs": 25 * 60, "label": "25min_Focus"},
+    {"name": "5m Break",  "secs": 5 * 60,  "label": "5min_Break"},
+    {"name": "10m Sprint", "secs": 10 * 60, "label": "10min_Sprint"},
+    {"name": "10s Test",   "secs": 10,      "label": "10sec_Demo"}
+]
+
+def run_pomodoro():
+    mode_idx = 0
+    is_running = False
+    time_left = POMO_MODES[mode_idx]["secs"]
+    last_tick = time.time()
+    completed_count = 0
+    
+    def render_pomo(status_text=None):
+        oled.fill(0)
+        oled.fill_rect(0, 0, 128, 13, 1)
+        cur_m = POMO_MODES[mode_idx]
+        oled.text(f"[ {cur_m['name']} ]", 2, 3, 0)
+        
+        if status_text:
+            oled.text(status_text[:16], 0, 26, 1)
+        else:
+            mins = time_left // 60
+            secs = time_left % 60
+            time_str = f"{mins:02d}:{secs:02d}"
+            oled.text(f">> {time_str} <<", 14, 20, 1)
+            
+            total_s = cur_m["secs"]
+            progress = max(0.0, min(1.0, 1.0 - (time_left / total_s)))
+            oled.rect(14, 34, 100, 7, 1)
+            oled.fill_rect(16, 36, int(progress * 96), 3, 1)
+            
+        oled.hline(0, 48, 128, 1)
+        if is_running:
+            oled.text("R:Pause  L:Reset", 0, 52, 1)
+        else:
+            oled.text("L:Mode   R:Start", 0, 52, 1)
+        oled.show()
+
+    def sync_completion_to_sheet(mode_label):
+        nonlocal completed_count
+        completed_count += 1
+        render_pomo("Syncing Sheet...")
+        try:
+            import gc
+            gc.collect()
+            wlan = network.WLAN(network.STA_IF)
+            if wlan.isconnected():
+                url = f"{GAS_URL}?device=Pomodoro_ESP32&event=Pomodoro_Done&count={completed_count}&msg={mode_label}"
+                r = urequests.get(url)
+                r.close()
+                render_pomo("Sheet Synced! OK")
+            else:
+                render_pomo("Offline Done!")
+        except Exception as e:
+            print("Pomo upload err:", e)
+            render_pomo("Upload Error!")
+        time.sleep(1.5)
+
+    render_pomo()
+    last_l = 1
+    last_r = 1
+    
+    while True:
+        if is_running:
+            now = time.time()
+            if now != last_tick:
+                elapsed = now - last_tick
+                last_tick = now
+                time_left = max(0, time_left - elapsed)
+                render_pomo()
+                
+                if time_left == 0:
+                    is_running = False
+                    for _ in range(3):
+                        oled.fill(0)
+                        oled.fill_rect(0, 0, 128, 64, 1)
+                        oled.show()
+                        time.sleep_ms(80)
+                        oled.fill(0)
+                        oled.show()
+                        time.sleep_ms(80)
+                    
+                    oled.fill(0)
+                    oled.fill_rect(0, 0, 128, 13, 1)
+                    oled.text("* SUCCESS! *", 18, 3, 0)
+                    oled.text("POMODORO DONE!", 8, 26, 1)
+                    oled.show()
+                    time.sleep(1.2)
+                    
+                    cur_label = POMO_MODES[mode_idx]["label"]
+                    sync_completion_to_sheet(cur_label)
+                    
+                    time_left = POMO_MODES[mode_idx]["secs"]
+                    render_pomo()
+                    
+        vl = btn_left.value()
+        vr = btn_right.value()
+        
+        if last_l == 1 and vl == 0:
+            time.sleep_ms(30)
+            if btn_left.value() == 0:
+                if is_running:
+                    is_running = False
+                    time_left = POMO_MODES[mode_idx]["secs"]
+                    render_pomo()
+                else:
+                    mode_idx = (mode_idx + 1) % len(POMO_MODES)
+                    time_left = POMO_MODES[mode_idx]["secs"]
+                    render_pomo()
+                while btn_left.value() == 0:
+                    time.sleep_ms(20)
+                    
+        if last_r == 1 and vr == 0:
+            time.sleep_ms(30)
+            if btn_right.value() == 0:
+                is_running = not is_running
+                last_tick = time.time()
+                render_pomo()
+                while btn_right.value() == 0:
+                    time.sleep_ms(20)
+                    
+        last_l = vl
+        last_r = vr
+        time.sleep_ms(40)
+
 # ================= 主程式進入點 =================
 def main():
     print("=============================================")
@@ -485,6 +613,9 @@ def main():
     elif selected_app == "CLOUD_MSG":
         print(">> 啟動系統 2: Cloud Msg Board 雲端悄悄話看板")
         run_cloud_msg()
+    elif selected_app == "POMODORO":
+        print(">> 啟動系統 3: Pomodoro Tracker 番茄鐘專注打卡機")
+        run_pomodoro()
 
 if __name__ == "__main__":
     main()
