@@ -10,7 +10,7 @@ import json
 import gc
 from machine import Pin, I2C
 from pico_i2c_lcd import I2cLcd
-from config import WIFI_NETWORKS, GAS_SCRIPT_ID
+from config import WIFI_NETWORKS, GAS_SCRIPT_ID, GOOGLE_API_KEY
 
 # ================= 1. 硬體初始化 =================
 i2c = I2C(0, sda=Pin(0), scl=Pin(1), freq=100000)
@@ -137,6 +137,77 @@ def safe_gas_request(params="", payload=None, timeout=10):
             except: pass
         gc.collect()
 
+def call_gemini_flash(prompt_text, timeout=25):
+    """
+    輕量呼叫 Google Gemini 2.5 Flash REST API (MicroPython 原生 socket + ssl)
+    """
+    gc.collect()
+    wlan = network.WLAN(network.STA_IF)
+    if not wlan.isconnected():
+        return None, "Offline"
+
+    host = "generativelanguage.googleapis.com"
+    path = f"/v1beta/models/gemini-3.5-flash:generateContent?key={GOOGLE_API_KEY}"
+    
+    payload = {
+        "contents": [{
+            "parts": [{"text": prompt_text}]
+        }],
+        "generationConfig": {
+            "temperature": 0.2,
+            "maxOutputTokens": 100
+        }
+    }
+    
+    body_data = json.dumps(payload)
+    s = None
+    ss = None
+    
+    try:
+        ai = socket.getaddrinfo(host, 443)
+        s = socket.socket()
+        s.settimeout(timeout)
+        s.connect(ai[0][-1])
+        ss = ssl.wrap_socket(s, server_hostname=host)
+        
+        req = (
+            f"POST {path} HTTP/1.0\r\n"
+            f"Host: {host}\r\n"
+            f"User-Agent: Pico2W\r\n"
+            f"Content-Type: application/json\r\n"
+            f"Content-Length: {len(body_data)}\r\n"
+            f"Connection: close\r\n\r\n"
+            f"{body_data}"
+        )
+        ss.write(req.encode())
+        
+        # 讀取 HTTP Header
+        while True:
+            line = ss.readline()
+            if not line or line == b"\r\n":
+                break
+                
+        # 讀取 Response Body
+        resp_bytes = ss.read()
+        if not resp_bytes:
+            return None, "Empty_Resp"
+            
+        data = json.loads(resp_bytes.decode())
+        if "candidates" in data and len(data["candidates"]) > 0:
+            text_out = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            return text_out, "OK"
+        return None, "No_Candidates"
+    except Exception as e:
+        return None, "Gemini_Err"
+    finally:
+        if ss:
+            try: ss.close()
+            except: pass
+        if s:
+            try: s.close()
+            except: pass
+        gc.collect()
+
 # ================= 4. 開機自動連線 Wi-Fi =================
 def auto_wifi():
     wlan = network.WLAN(network.STA_IF)
@@ -169,7 +240,8 @@ def auto_wifi():
 SYSTEMS = [
     {"name": "1.Fortune Dice", "desc": "Lunch & Fate"},
     {"name": "2.CloudMsg",     "desc": "L:Pull   R:Push"},
-    {"name": "3.Sheet Sync",   "desc": "Push Counter"}
+    {"name": "3.Sheet Sync",   "desc": "Push Counter"},
+    {"name": "4.AI Agri",      "desc": "Irrigate Inference"}
 ]
 
 def main_menu():
@@ -331,12 +403,6 @@ def run_sys_fortune():
         vl = btn_left.value()
         vr = btn_right.value()
 
-        # 雙鍵同按 -> 回主選單
-        if vl == 0 and vr == 0:
-            lcd_p("Exiting System..", "Back to Menu")
-            time.sleep_ms(600)
-            break
-
         # 左鍵 (GP14): 抽本機預設籤筒 (Preset)
         if last_l == 1 and vl == 0:
             roll_dice_animation("Preset", FORTUNE_OPTIONS)
@@ -361,12 +427,6 @@ def run_sys_sync():
     while True:
         vl = btn_left.value()
         vr = btn_right.value()
-
-        # 雙鍵同按 -> 回主選單
-        if vl == 0 and vr == 0:
-            lcd_p("Exiting System..", "Back to Menu")
-            time.sleep_ms(600)
-            break
 
         # GP14: +1
         if last_l == 1 and vl == 0:
@@ -416,12 +476,6 @@ def run_sys_msg():
         vl = btn_left.value()
         vr = btn_right.value()
         rand_seed = (rand_seed + 1) % len(RANDOM_MESSAGES)
-
-        # 雙鍵同按 -> 回主選單
-        if vl == 0 and vr == 0:
-            lcd_p("Exiting System..", "Back to Menu")
-            time.sleep_ms(600)
-            break
 
         # GP14 (Left): L:Pull 拉取試算表最新留言 (純讀取，不發送)
         if last_l == 1 and vl == 0:
@@ -476,6 +530,138 @@ def run_sys_msg():
         last_r = vr
         time.sleep_ms(20)
 
+# ================= 8. 系統 4: AI 農業智慧灌溉決策系統 (Gemini 2.5 Flash 推理) =================
+def run_sys_ai_agri():
+    lcd_p("[AI Agriculture]", "R:Run Inference")
+    last_l = 1
+    last_r = 1
+
+    def parse_gemini_json(raw_text):
+        """安全提取 JSON 字典"""
+        if not raw_text:
+            return None
+        text = raw_text.strip()
+        # 去除 markdown 標籤
+        if "```" in text:
+            parts = text.split("```")
+            for p in parts:
+                p_clean = p.strip()
+                if p_clean.startswith("json"):
+                    p_clean = p_clean[4:].strip()
+                if p_clean.startswith("{") and p_clean.endswith("}"):
+                    text = p_clean
+                    break
+        try:
+            # 尋找頭尾括號
+            start = text.find("{")
+            end = text.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                return json.loads(text[start:end+1])
+        except Exception:
+            pass
+        return None
+
+    def execute_inference():
+        # 步驟 1: 檢查與獲取試算表中的農田感測數據
+        lcd_p("Reading Sheet...", "Checking Data...")
+        res, code = safe_gas_request(params="action=get_farm_data")
+
+        if code != "OK" or not isinstance(res, dict) or res.get("status") != "success":
+            lcd_p("AI Agri", "No_data")
+            time.sleep(2.0)
+            lcd_p("[AI Agriculture]", "R:Run Inference")
+            return
+
+        # 取得農田五大要素
+        humidity = res.get("humidity", 0)
+        temp = res.get("temp", 0)
+        soil_dry = res.get("soil_dryness", 0)
+        soil_ec = res.get("soil_ec", 0)
+        rain_fc = res.get("rain_forecast", "Unknown")
+
+        # 步驟 2: 組織 Prompt 給 Gemini 2.5 Flash
+        lcd_p("Farm Data OK!", "AI Thinking...")
+        prompt = (
+            f"You are an agricultural irrigation expert. Given farmland metrics: "
+            f"Humidity: {humidity}%, Temp: {temp}C, Soil Dryness: {soil_dry}%, "
+            f"Soil EC: {soil_ec}, Rain Forecast: {rain_fc}. "
+            f"Decide whether to water or not. "
+            f"Reply ONLY in valid JSON format with keys: "
+            f"'water' (boolean), 'decision' (string: 'WATER' or 'NO WATER'), "
+            f"'reason' (string, maximum 16 characters in English for 1602 LCD). "
+            f"No explanation outside JSON."
+        )
+
+        gemini_out, gemini_code = call_gemini_flash(prompt)
+        decision = "UNKNOWN"
+        reason = "AI Timeout"
+
+        if gemini_code == "OK" and gemini_out:
+            parsed = parse_gemini_json(gemini_out)
+            if parsed:
+                decision = "WATER" if parsed.get("water") is True or parsed.get("decision") == "WATER" else "NO WATER"
+                reason = str(parsed.get("reason", "OK"))[:16]
+            else:
+                # Fallback 依據土壤乾度預設決策
+                decision = "WATER" if soil_dry >= 70 else "NO WATER"
+                reason = "Dry: " + str(soil_dry) + "%"
+        else:
+            lcd_p("AI Inference Err", gemini_code[:16])
+            time.sleep(1.8)
+            # 若 AI 離線，依規則 Fallback
+            decision = "WATER" if soil_dry >= 70 else "NO WATER"
+            reason = "Offline Rule"
+
+        # 步驟 3: LCD1602 螢幕呈現決策結果
+        lcd.clear()
+        line0 = f">> {decision} <<"[:16].center(16)
+        line1 = reason[:16]
+        lcd_p(line0, line1)
+        time.sleep(3.0)
+
+        # 步驟 4: 在試算表上留下日誌 (FarmLogs)
+        lcd_p("Logging Cloud...", "Saving Record..")
+        payload = {
+            "action": "log_ai_decision",
+            "device": "Pico2W",
+            "decision": decision,
+            "reason": reason,
+            "humidity": humidity,
+            "temp": temp,
+            "soil_dryness": soil_dry,
+            "soil_ec": soil_ec,
+            "rain_forecast": rain_fc,
+            "ts": time.time()
+        }
+        log_res, log_code = safe_gas_request(payload=payload)
+        if log_code == "OK":
+            lcd_p("Log Inscribed!", decision[:16])
+        else:
+            lcd_p("Log Offline", decision[:16])
+        time.sleep(1.8)
+
+        lcd_p("[AI Agriculture]", "R:Run Inference")
+
+    while True:
+        vl = btn_left.value()
+        vr = btn_right.value()
+
+        # 右鍵 (GP16): 執行 AI 推理流程
+        if last_r == 1 and vr == 0:
+            execute_inference()
+            time.sleep_ms(200)
+
+        # 左鍵 (GP14): 提示操作
+        if last_l == 1 and vl == 0:
+            lcd_p("Press R to Run", "AI Inference")
+            time.sleep(1.2)
+            lcd_p("[AI Agriculture]", "R:Run Inference")
+            time.sleep_ms(200)
+
+        last_l = vl
+        last_r = vr
+        time.sleep_ms(20)
+
 # ================= 主流程 =================
 def main():
     play_ceremony()
@@ -488,6 +674,8 @@ def main():
             run_sys_msg()
         elif choice == 2:
             run_sys_sync()
+        elif choice == 3:
+            run_sys_ai_agri()
 
 if __name__ == "__main__":
     main()

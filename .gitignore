@@ -1,3 +1,7 @@
 __pycache__/
 *.pyc
 
+
+.env
+quick_test.py
+test_pipeline.py
