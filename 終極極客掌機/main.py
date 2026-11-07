@@ -18,6 +18,7 @@ I2C_SCL_PIN = 22
 BUTTON_LEFT_PIN = 18    # 左鍵 (Next / Jump / Mode)
 BUTTON_RIGHT_PIN = 4    # 右鍵 (Enter / Confirm / Start)
 BUZZER_PIN = 33         # 有源蜂鳴器 (正極接 GPIO 33, 負極接 GND)
+LED_PIN = 2             # 板載內建 LED (GPIO 2)
 
 WIDTH = 128
 HEIGHT = 64
@@ -30,12 +31,17 @@ btn_right = Pin(BUTTON_RIGHT_PIN, Pin.IN, Pin.PULL_UP)
 buzzer = Pin(BUZZER_PIN, Pin.OUT)
 buzzer.value(0)  # 預設靜音
 
+led = Pin(LED_PIN, Pin.OUT)
+led.value(0)     # 預設熄滅
+
 def alarm_beep(times=3):
-    """有源蜂鳴器鬧鐘提醒音效 (急促逼逼聲)"""
+    """有源蜂鳴器與內建 LED 同步鬧鐘提醒 (急促逼逼聲 + 爆閃)"""
     for _ in range(times):
         buzzer.value(1)
+        led.value(1)
         time.sleep_ms(150)
         buzzer.value(0)
+        led.value(0)
         time.sleep_ms(100)
 
 # ================= 2. 極客開機儀式感 =================
@@ -372,24 +378,32 @@ def run_pomodoro():
             if now != last_tick:
                 time_left = max(0, time_left - (now - last_tick))
                 last_tick = now
+                
+                # 倒數計時中：每秒呼吸心跳短閃一下
+                led.value(1)
+                time.sleep_ms(30)
+                led.value(0)
+                
                 render()
                 if time_left == 0:
                     is_running = False
-                    # 畫面閃爍並同步觸發蜂鳴器鬧鐘提醒
+                    # 畫面閃爍並同步觸發蜂鳴器與內建 LED 爆閃鬧鐘提醒
                     for _ in range(3):
                         oled.fill(1)
                         oled.show()
                         buzzer.value(1)
+                        led.value(1)
                         time.sleep_ms(120)
                         oled.fill(0)
                         oled.show()
                         buzzer.value(0)
+                        led.value(0)
                         time.sleep_ms(80)
                     
                     oled.text("* POMODORO DONE *", 0, 24, 1)
                     oled.text("FOCUS SUCCESS!", 10, 40, 1)
                     oled.show()
-                    # 結尾再來一次急促連響提醒
+                    # 結尾再來一次急促連響與閃爍提醒
                     alarm_beep(2)
                     time.sleep(1.5)
                     time_left = MODES[mode_idx]["secs"]
@@ -399,6 +413,7 @@ def run_pomodoro():
         if last_l == 1 and vl == 0:
             if is_running:
                 is_running = False
+                led.value(0)
                 time_left = MODES[mode_idx]["secs"]
             else:
                 mode_idx = (mode_idx + 1) % len(MODES)
@@ -409,6 +424,8 @@ def run_pomodoro():
         # R 鍵
         if last_r == 1 and vr == 0:
             is_running = not is_running
+            if not is_running:
+                led.value(0)
             last_tick = time.time()
             render()
             time.sleep_ms(200)
