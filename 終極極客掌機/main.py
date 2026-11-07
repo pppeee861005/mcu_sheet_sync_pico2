@@ -17,6 +17,7 @@ I2C_SDA_PIN = 21
 I2C_SCL_PIN = 22
 BUTTON_LEFT_PIN = 18    # 左鍵 (Next / Jump / Mode)
 BUTTON_RIGHT_PIN = 4    # 右鍵 (Enter / Confirm / Start)
+BUZZER_PIN = 33         # 有源蜂鳴器 (正極接 GPIO 33, 負極接 GND)
 
 WIDTH = 128
 HEIGHT = 64
@@ -26,6 +27,16 @@ oled = SSD1306_I2C(WIDTH, HEIGHT, i2c)
 
 btn_left = Pin(BUTTON_LEFT_PIN, Pin.IN, Pin.PULL_UP)
 btn_right = Pin(BUTTON_RIGHT_PIN, Pin.IN, Pin.PULL_UP)
+buzzer = Pin(BUZZER_PIN, Pin.OUT)
+buzzer.value(0)  # 預設靜音
+
+def alarm_beep(times=3):
+    """有源蜂鳴器鬧鐘提醒音效 (急促逼逼聲)"""
+    for _ in range(times):
+        buzzer.value(1)
+        time.sleep_ms(150)
+        buzzer.value(0)
+        time.sleep_ms(100)
 
 # ================= 2. 極客開機儀式感 =================
 def play_boot_ceremony():
@@ -364,17 +375,23 @@ def run_pomodoro():
                 render()
                 if time_left == 0:
                     is_running = False
+                    # 畫面閃爍並同步觸發蜂鳴器鬧鐘提醒
                     for _ in range(3):
                         oled.fill(1)
                         oled.show()
-                        time.sleep_ms(100)
+                        buzzer.value(1)
+                        time.sleep_ms(120)
                         oled.fill(0)
                         oled.show()
-                        time.sleep_ms(100)
+                        buzzer.value(0)
+                        time.sleep_ms(80)
+                    
                     oled.text("* POMODORO DONE *", 0, 24, 1)
                     oled.text("FOCUS SUCCESS!", 10, 40, 1)
                     oled.show()
-                    time.sleep(2)
+                    # 結尾再來一次急促連響提醒
+                    alarm_beep(2)
+                    time.sleep(1.5)
                     time_left = MODES[mode_idx]["secs"]
                     render()
 
