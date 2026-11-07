@@ -378,12 +378,6 @@ def run_pomodoro():
             if now != last_tick:
                 time_left = max(0, time_left - (now - last_tick))
                 last_tick = now
-                
-                # 倒數計時中：每秒呼吸心跳短閃一下
-                led.value(1)
-                time.sleep_ms(30)
-                led.value(0)
-                
                 render()
                 if time_left == 0:
                     is_running = False
