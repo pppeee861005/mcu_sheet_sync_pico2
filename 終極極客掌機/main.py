@@ -34,6 +34,12 @@ buzzer.value(0)  # 預設靜音
 led = Pin(LED_PIN, Pin.OUT)
 led.value(0)     # 預設熄滅
 
+def beep_click(duration_ms=18):
+    """輕快的按鍵音效反饋"""
+    buzzer.value(1)
+    time.sleep_ms(duration_ms)
+    buzzer.value(0)
+
 def alarm_beep(times=3):
     """有源蜂鳴器與內建 LED 同步鬧鐘提醒 (急促逼逼聲 + 爆閃)"""
     for _ in range(times):
@@ -105,11 +111,13 @@ def show_main_menu():
         vr = btn_right.value()
 
         if last_l == 1 and vl == 0:
+            beep_click(20)
             selected = (selected + 1) % len(MENU_ITEMS)
             render()
             time.sleep_ms(200)
 
         if last_r == 1 and vr == 0:
+            beep_click(35)
             time.sleep_ms(200)
             return selected
 
@@ -162,6 +170,7 @@ def run_dino():
 
         if not game_over:
             if btn_pressed and not is_jumping:
+                beep_click(15)
                 velocity_y = -6.5
                 is_jumping = True
 
@@ -186,6 +195,7 @@ def run_dino():
             # 碰撞檢測
             if (dino_x + 9 > cactus_x and dino_x + 2 < cactus_x + 6 and dino_y + 10 > cactus_y):
                 game_over = True
+                alarm_beep(1)
                 if score > high_score:
                     high_score = score
 
@@ -206,6 +216,7 @@ def run_dino():
             oled.show()
 
             if btn_pressed:
+                beep_click(25)
                 score = 0
                 cactus_x = WIDTH + 10
                 cactus_speed = 3.0
@@ -405,6 +416,7 @@ def run_pomodoro():
 
         # L 鍵
         if last_l == 1 and vl == 0:
+            beep_click(20)
             if is_running:
                 is_running = False
                 led.value(0)
@@ -417,6 +429,7 @@ def run_pomodoro():
 
         # R 鍵
         if last_r == 1 and vr == 0:
+            beep_click(30)
             is_running = not is_running
             if not is_running:
                 led.value(0)
@@ -448,6 +461,7 @@ def run_clock():
 
         # L 鍵: 碼表歸零
         if last_l == 1 and vl == 0:
+            beep_click(20)
             stopwatch_ms = 0
             if sw_running:
                 sw_start = time.ticks_ms()
@@ -455,6 +469,7 @@ def run_clock():
 
         # R 鍵: 碼表 啟動 / 暫停
         if last_r == 1 and vr == 0:
+            beep_click(30)
             sw_running = not sw_running
             if sw_running:
                 sw_start = time.ticks_ms() - stopwatch_ms

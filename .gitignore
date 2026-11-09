@@ -1,7 +1,29 @@
+# Python bytecode & cache
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
-
+# Environment variables & secrets
 .env
+.env.*
+
+# Local test & scratch scripts
 quick_test.py
 test_pipeline.py
+
+# Editor & IDE configs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs
+*.log
+
