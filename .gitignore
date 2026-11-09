@@ -7,6 +7,9 @@ __pycache__/
 # Environment variables & secrets
 .env
 .env.*
+wifi_secrets.py
+secrets.py
+*secrets*.py
 
 # Local test & scratch scripts
 quick_test.py
