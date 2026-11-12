@@ -60,6 +60,12 @@ class I2cLcd(LcdApi):
         self.backlight = False
         self.i2c.writeto(self.i2c_addr, bytes([0]))
 
+    def backlight_on(self):
+        self.hal_backlight_on()
+
+    def backlight_off(self):
+        self.hal_backlight_off()
+
     def hal_write_command(self, cmd):
         bl = 1 << SHIFT_BACKLIGHT if self.backlight else 0
         high = bl | (((cmd >> 4) & 0x0f) << SHIFT_DATA)
