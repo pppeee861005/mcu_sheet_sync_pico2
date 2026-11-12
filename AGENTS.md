@@ -32,8 +32,9 @@ Deployments are configured by `智慧音箱/vercel.json`; validate locally befor
 
 ## MicroPython & Cloud Conventions
 
-- **Wi-Fi Multi-SSID Prioritization**: When configuring fallback Wi-Fi networks in MCU code, list the highest-priority network first (e.g. mobile hotspot first, home Wi-Fi as backup).
-- **Cloud Sync Architecture**: Communication with Google Apps Script (GAS) or web hooks operates over short-lived HTTPS REST API requests (request-response pattern), not persistent raw TCP/WebSocket connections.
+- **Wi-Fi Multi-SSID Prioritization & State Defense**: When configuring fallback Wi-Fi networks in MCU code, list the highest-priority network first (e.g. mobile hotspot first, home Wi-Fi as backup). Always perform state defense (`wlan.disconnect()` and brief `active(False) -> active(True)`) before connecting to prevent ESP32 `Wifi Internal State Error`. Provide graceful offline fallback when networks timeout.
+- **Cloud Sync Architecture & GAS 302 Defense**: Communication with Google Apps Script (GAS) or web hooks operates over short-lived HTTPS REST API requests. **NEVER use standard `urequests.get()` for consecutive GAS requests** because GAS triggers HTTP 302 redirects and `urequests` leaks SSL sockets, causing `OSError: 16 (EBUSY)` and freezing execution on the second request. Always use native `socket` + `ssl.wrap_socket` and ensure `s.close()` and `gc.collect()` are executed BEFORE following the 302 `Location` redirect.
+- **SSD1306 0.96" OLED Chinese Font Standard**: MicroPython builtin `framebuf` only supports 8x8 ASCII. When rendering Traditional Chinese on SSD1306 (128x64), **ALWAYS use 16x16 Row-Major, MSB-First format** (16 rows, 2 bytes/row, 32 bytes/char, bit 7 as leftmost pixel) generated via Python Pillow from system fonts (e.g. `msjh.ttc`). Never use mismatched column-major or LSB formats to avoid character tearing and horizontal mirroring.
 
 ## Coding Style & Naming Conventions
 
