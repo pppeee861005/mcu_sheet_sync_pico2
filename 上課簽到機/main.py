@@ -78,30 +78,36 @@ def show_status_screen(line1_cn, line2_en=""):
 def render_select_screen(name, index, total):
     """
     選人介面 (繁體中文 OLED 版)：
-    ┌────────────────────────┐
-    │ 學生簽到機       [1/8] │
-    ├────────────────────────┤
-    │  >  陳大明             │
-    │ [左:切換    右:確認]    │
-    └────────────────────────┘
+    若為講師等較長字串，自動調整排版以完整呈現
     """
     oled.fill(0)
-    # 裝飾外框與分隔線
     oled.rect(0, 0, 128, 64, 1)
     oled.hline(0, 20, 128, 1)
 
     # 頂部標題與計數
-    draw_string_cn(oled, "學生簽到機", 6, 2)
+    draw_string_cn(oled, "上課簽到機", 6, 2)
     counter_str = f"[{index + 1}/{total}]"
     oled.text(counter_str, 88, 6)
 
-    # 中間學生姓名 (16x16 漢字)
-    oled.text(">", 12, 28)
-    draw_string_cn(oled, name, 28, 24)
+    # 判斷是否為長名字 (例如：講師 賴建安(Tony Lai))
+    if len(name) > 4:
+        # 拆分或換行美化顯示
+        if "(" in name:
+            part1 = name.split("(")[0].strip()   # "講師 賴建安"
+            part2 = "(" + name.split("(")[1]     # "(Tony Lai)"
+            oled.text(">", 6, 26)
+            draw_string_cn(oled, part1, 18, 22)
+            oled.text(part2, 20, 38)
+        else:
+            oled.text(">", 6, 28)
+            draw_string_cn(oled, name, 18, 24)
+    else:
+        oled.text(">", 12, 28)
+        draw_string_cn(oled, name, 28, 24)
 
     # 底部按鍵指引
-    oled.hline(0, 46, 128, 1)
-    oled.text("L:Next  R:Sign", 8, 50)
+    oled.hline(0, 48, 128, 1)
+    oled.text("L:Next  R:Sign", 8, 52)
 
     oled.show()
 

@@ -4,17 +4,43 @@ from PIL import Image, ImageDraw, ImageFont
 font_path = 'C:\\Windows\\Fonts\\msjh.ttc'
 font = ImageFont.truetype(font_path, 14)
 
-# 簽到系統常用繁體中文漢字 + 學生姓名用字
-chars = [
-    '學', '生', '簽', '到', '機', '成', '功', '出', '席', '確', '認', '已', '經', '中', '連', '線',
-    '陳', '大', '明', '林', '小', '美', '王', '維', '張', '志', '豪', '黃', '雅', '婷', '李', '冠', '宇', '吳', '家', '蔡', '佩', '君'
+# 23位同學 + 講師姓名名單
+names = [
+    "講師 賴建安",
+    "繆志煜",
+    "張元俊",
+    "黃學豪",
+    "張軒翟",
+    "劉浩萱",
+    "彭清波",
+    "洪瑞雄",
+    "黃國峰",
+    "黃煜仁",
+    "許秩赫",
+    "余姮",
+    "黃雅婷",
+    "謝旻珊",
+    "林威達",
+    "張祥禔",
+    "許玉詩",
+    "游建益",
+    "施彤霖",
+    "吳逸盈",
+    "黃玠翔",
+    "許陳候",
+    "晁成雯",
+    "陳一銘"
 ]
 
-chars = list(dict.fromkeys(chars))
+# 介面常用字 + 姓名所有用字去重 (包含 "講"、"師")
+system_chars = ['學', '生', '簽', '到', '機', '成', '功', '出', '席', '確', '認', '已', '經', '中', '連', '線', '離', '模', '式', '講', '師']
+all_chars = list(dict.fromkeys(system_chars + list("".join(names))))
+
+print(f"總共需要生成 {len(all_chars)} 個繁體中文字模...")
 
 output_dict = {}
 
-for ch in chars:
+for ch in all_chars:
     img = Image.new('1', (16, 16), 0)
     draw = ImageDraw.Draw(img)
     bbox = draw.textbbox((0, 0), ch, font=font)
@@ -38,7 +64,7 @@ for ch in chars:
         data.extend([b1, b2])
     output_dict[ch] = data
 
-file_content = '''# fonts_cn.py - 繁體中文 16x16 標準點陣字型庫 (上課簽到機專用)
+file_content = '''# fonts_cn.py - 繁體中文 16x16 標準點陣字型庫 (含 講師 賴建安)
 # 格式：Row-major (每行 2 bytes，共 16 行 = 32 bytes)
 # bit 7 到 bit 0 由左至右映射像素
 
@@ -89,4 +115,4 @@ def draw_string_cn(oled, text, start_x, start_y, color=1):
 with open(r'd:\練習操作區\創客\上課簽到機\fonts_cn.py', 'w', encoding='utf-8') as f:
     f.write(file_content)
 
-print(f'Successfully generated fonts_cn.py with {len(chars)} genuine MSJH Chinese glyphs!')
+print(f'Successfully generated fonts_cn.py with {len(all_chars)} Chinese glyphs!')
