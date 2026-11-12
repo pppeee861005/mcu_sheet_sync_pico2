@@ -4,7 +4,6 @@ from PIL import Image, ImageDraw, ImageFont
 font_path = 'C:\\Windows\\Fonts\\msjh.ttc'
 font = ImageFont.truetype(font_path, 14)
 
-# 班級名稱與學生名單
 classes = ["AIoT實戰班", "開心農場班"]
 
 students_a = [
@@ -15,13 +14,14 @@ students_a = [
 ]
 
 students_b = [
-    "講師 賴建安", "陳大明", "林小美", "王大維", "張志豪", "李冠宇", "吳家豪", "蔡佩君"
+    "講師 許陳候", "陳桂玉", "黃學豪", "林義清", "許秩赫", "丁冠光",
+    "高素華", "許筱涵", "李良惠", "邱寶純", "陳清塭", "楊祝慧",
+    "吳秀女", "張麗卿", "陳清溪", "潘子塘"
 ]
 
-# 介面用字 + 班級字 + 學生用字
 system_chars = [
     '學', '生', '簽', '到', '機', '成', '功', '出', '席', '確', '認',
-    '已', '經', '中', '連', '線', '離', '模', '式', '選', '擇', '班', '級'
+    '已', '經', '中', '連', '線', '離', '模', '式', '選', '擇', '班', '級', '講', '師'
 ]
 
 raw_chars = system_chars + list("".join(classes)) + list("".join(students_a)) + list("".join(students_b))
@@ -56,7 +56,7 @@ for ch in all_chars:
             data.extend([b1, b2])
         output_dict[ch] = data
 
-file_content = '''# fonts_cn.py - 繁體中文 16x16 標準點陣字型庫 (雙班級管理專用)
+file_content = '''# fonts_cn.py - 繁體中文 16x16 標準點陣字型庫 (AIoT實戰班 + 開心農場班 正式名冊)
 # 格式：Row-major (每行 2 bytes，共 16 行 = 32 bytes)
 # bit 7 到 bit 0 由左至右映射像素
 

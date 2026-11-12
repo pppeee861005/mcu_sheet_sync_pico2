@@ -1,4 +1,4 @@
-# config.py - 上課簽到機 Wi-Fi 與 Google Apps Script 設定檔 (雙班級管理版)
+# config.py - 上課簽到機 Wi-Fi 與 Google Apps Script 設定檔 (雙班級正式名單)
 
 # Wi-Fi 多組 SSID 優先順序設定 (手機熱點優先，家用 Wi-Fi 備援)
 WIFI_NETWORKS = [
@@ -9,7 +9,7 @@ WIFI_NETWORKS = [
 # Google Apps Script 簽到表記錄端點 ID
 GAS_CHECKIN_SCRIPT_ID = "AKfycbxsDRli36NtvJZlqIglqQKhy5ooRH1GtL_dt253pu9hJ5Trv_AMMjIrBMMD40Eo5UKC"
 
-# 雙班級架構配置
+# 雙班級正式架構配置
 CLASSES = {
     "AIoT實戰班": [
         "講師 賴建安",
@@ -38,13 +38,21 @@ CLASSES = {
         "陳一銘"
     ],
     "開心農場班": [
-        "講師 賴建安",
-        "陳大明",
-        "林小美",
-        "王大維",
-        "張志豪",
-        "李冠宇",
-        "吳家豪",
-        "蔡佩君"
+        "講師 許陳候",
+        "陳桂玉",
+        "黃學豪",
+        "林義清",
+        "許秩赫",
+        "丁冠光",
+        "高素華",
+        "許筱涵",
+        "李良惠",
+        "邱寶純",
+        "陳清塭",
+        "楊祝慧",
+        "吳秀女",
+        "張麗卿",
+        "陳清溪",
+        "潘子塘"
     ]
 }
