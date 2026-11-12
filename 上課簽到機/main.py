@@ -106,11 +106,17 @@ def render_select_screen(name, index, total):
     oled.show()
 
 # -------------------------------------------------------------
-# 網路連線管理 (優先手機熱點，家用備援)
+# 網路連線管理 (優先手機熱點，家用備援，含 ESP32 異常防禦)
 # -------------------------------------------------------------
 def connect_wifi():
     wlan = network.WLAN(network.STA_IF)
+    try:
+        wlan.active(False)
+        time.sleep(0.2)
+    except Exception:
+        pass
     wlan.active(True)
+    time.sleep(0.5)
 
     if wlan.isconnected():
         return True
@@ -120,11 +126,22 @@ def connect_wifi():
         pwd = net.get("password", "")
         show_status_screen("連線中", ssid[:14])
         print(f"[WiFi] 嘗試連線至: {ssid}...")
-        wlan.connect(ssid, pwd)
+        
+        try:
+            # 若處於連線中狀態先斷開，避免 ESP32 拋出 Wifi Internal State Error
+            try:
+                wlan.disconnect()
+            except Exception:
+                pass
+            time.sleep(0.2)
+            wlan.connect(ssid, pwd)
+        except Exception as e:
+            print(f"[WiFi] 發起連線 {ssid} 異常: {e}，嘗試下一組...")
+            continue
 
         start_time = time.time()
         while not wlan.isconnected():
-            if time.time() - start_time > 10:
+            if time.time() - start_time > 8:
                 print(f"[WiFi] 連線 {ssid} 逾時，嘗試下一組...")
                 break
             time.sleep(0.5)
@@ -133,10 +150,11 @@ def connect_wifi():
             ip = wlan.ifconfig()[0]
             print(f"[WiFi] 連線成功! IP: {ip}")
             show_status_screen("連線成功", ip[:16])
-            time.sleep(1.2)
+            time.sleep(1.0)
             return True
 
-    show_status_screen("連線失敗", "Check config")
+    show_status_screen("離線模式", "Offline Ready")
+    time.sleep(1.0)
     return False
 
 # -------------------------------------------------------------
