@@ -1,8 +1,8 @@
-# main.py - 上課簽到機 v2.0 (ESP32-S3 + SSD1306 OLED 繁體中文掌機版)
+# main.py - 上課簽到機 v3.0 (雙班級管理版：AIoT 實戰班 & 開心農場班)
 # 硬體腳位規範 (完全對齊終極極客掌機/硬體架構.md)：
 #   I2C SDA: GPIO 21
 #   I2C SCL: GPIO 22
-#   按鍵 A (左鍵 / 切換學生名字): GPIO 18 (Pull-Up)
+#   按鍵 A (左鍵 / 切換學生名字；長按 1.8 秒切換班級): GPIO 18 (Pull-Up)
 #   按鍵 B (右鍵 / 確認簽到送出): GPIO 4 (Pull-Up)
 #   有源蜂鳴器: GPIO 33
 #   板載 LED: GPIO 2
@@ -16,15 +16,15 @@ import gc
 from machine import Pin, I2C
 import ssd1306
 from fonts_cn import draw_char_16x16, draw_string_cn
-from config import WIFI_NETWORKS, GAS_CHECKIN_SCRIPT_ID, STUDENT_LIST
+from config import WIFI_NETWORKS, GAS_CHECKIN_SCRIPT_ID, CLASSES
 
 # -------------------------------------------------------------
 # 硬體腳位定義
 # -------------------------------------------------------------
 SDA_PIN = 21       # GPIO 21 (I2C0 SDA)
 SCL_PIN = 22       # GPIO 22 (I2C0 SCL)
-BTN_SELECT  = 18   # GPIO 18 (按鈕 A 左鍵: 切換學生名字)
-BTN_CONFIRM = 4    # GPIO 4  (按鈕 B 右鍵: 確認簽到送出)
+BTN_SELECT  = 18   # GPIO 18 (按鈕 A 左鍵)
+BTN_CONFIRM = 4    # GPIO 4  (按鈕 B 右鍵)
 BUZZER_PIN  = 33   # GPIO 33 (有源蜂鳴器)
 LED_PIN     = 2    # GPIO 2  (板載 LED)
 
@@ -56,6 +56,16 @@ def beep_click():
     buzzer.value(0)
     led.value(0)
 
+def beep_class_switch():
+    """班級切換三全音"""
+    for _ in range(3):
+        led.value(1)
+        buzzer.value(1)
+        time.sleep(0.04)
+        buzzer.value(0)
+        led.value(0)
+        time.sleep(0.04)
+
 def beep_success():
     """簽到成功歡慶雙響"""
     for _ in range(2):
@@ -78,22 +88,51 @@ def show_status_screen(line1_cn, line2_en=""):
         oled.text(line2_en[:16], 16, 40)
     oled.show()
 
-def render_select_screen(name, index, total):
+def render_select_class_screen(class_name, class_idx, total_classes):
     """
-    選人介面 (繁體中文 OLED 版)：
-    居中呈現 16x16 姓名
+    開機班級選擇介面：
+    ┌────────────────────────┐
+    │ 選擇班級         [1/2] │
+    ├────────────────────────┤
+    │ > AIoT 實戰班          │
+    │ L:切換    R:進入班級    │
+    └────────────────────────┘
     """
     oled.fill(0)
     oled.rect(0, 0, 128, 64, 1)
     oled.hline(0, 20, 128, 1)
 
-    # 頂部標題與計數
-    draw_string_cn(oled, "上課簽到機", 6, 2)
-    counter_str = f"[{index + 1}/{total}]"
+    draw_string_cn(oled, "選擇班級", 6, 2)
+    counter_str = f"[{class_idx + 1}/{total_classes}]"
     oled.text(counter_str, 88, 6)
 
-    # 中間學生姓名 (16x16 漢字)
-    # 若為 5 字 (如: "講師 賴建安") 從 x=16 開始；3 字 (如: "陳大明") 從 x=28 開始
+    oled.text(">", 6, 28)
+    draw_string_cn(oled, class_name, 18, 24)
+
+    oled.hline(0, 48, 128, 1)
+    oled.text("L:Next  R:Select", 4, 52)
+    oled.show()
+
+def render_student_screen(class_name, name, index, total):
+    """
+    學生點名介面 (頂部標註班級名稱)：
+    ┌────────────────────────┐
+    │ AIoT實戰班       [1/24]│
+    ├────────────────────────┤
+    │ >  講師 賴建安         │
+    │ L:換人(長按換班) R:簽到 │
+    └────────────────────────┘
+    """
+    oled.fill(0)
+    oled.rect(0, 0, 128, 64, 1)
+    oled.hline(0, 20, 128, 1)
+
+    # 頂部：班級名稱 + 計數
+    draw_string_cn(oled, class_name[:5], 6, 2)
+    counter_str = f"[{index + 1}/{total}]"
+    oled.text(counter_str, 82, 6)
+
+    # 中間學生姓名
     if len(name) >= 5:
         oled.text(">", 4, 28)
         draw_string_cn(oled, name, 16, 24)
@@ -108,7 +147,7 @@ def render_select_screen(name, index, total):
     oled.show()
 
 # -------------------------------------------------------------
-# 網路連線管理 (優先手機熱點，家用備援，含 ESP32 異常防禦)
+# 網路連線管理 (含 ESP32 異常防禦)
 # -------------------------------------------------------------
 def connect_wifi():
     wlan = network.WLAN(network.STA_IF)
@@ -128,9 +167,8 @@ def connect_wifi():
         pwd = net.get("password", "")
         show_status_screen("連線中", ssid[:14])
         print(f"[WiFi] 嘗試連線至: {ssid}...")
-        
+
         try:
-            # 若處於連線中狀態先斷開，避免 ESP32 拋出 Wifi Internal State Error
             try:
                 wlan.disconnect()
             except Exception:
@@ -138,7 +176,7 @@ def connect_wifi():
             time.sleep(0.2)
             wlan.connect(ssid, pwd)
         except Exception as e:
-            print(f"[WiFi] 發起連線 {ssid} 異常: {e}，嘗試下一組...")
+            print(f"[WiFi] 發起連線 {ssid} 異常: {e}")
             continue
 
         start_time = time.time()
@@ -160,10 +198,9 @@ def connect_wifi():
     return False
 
 # -------------------------------------------------------------
-# 雲端簽到同步 (強健型 SSL Socket 客戶端，徹底杜絕連線 EBUSY / 洩漏)
+# 雲端簽到同步 (原生強健型 SSL Socket 客戶端)
 # -------------------------------------------------------------
 def fetch_gas_request(url):
-    """底層安全連線函式，具備 302 重導向追蹤與即時 Socket 關閉"""
     gc.collect()
     time.sleep(0.15)
     proto, dummy, host, path = url.split('/', 3)
@@ -206,15 +243,18 @@ def fetch_gas_request(url):
         gc.collect()
         raise e
 
-def submit_checkin(student_name):
-    """發送 HTTP GET 請求向雲端 Google 試算表記錄簽到"""
-    # URL 編碼 UTF-8
+def submit_checkin(class_name, student_name):
+    """發送 HTTP GET 請求帶上班級與學生姓名"""
+    encoded_class = ""
+    for b in class_name.encode('utf-8'):
+        encoded_class += "%%%02X" % b
+
     encoded_name = ""
     for b in student_name.encode('utf-8'):
         encoded_name += "%%%02X" % b
 
-    url = f"https://script.google.com/macros/s/{GAS_CHECKIN_SCRIPT_ID}/exec?name={encoded_name}"
-    print(f"[HTTP] 送出簽到請求: {student_name} -> {url}...")
+    url = f"https://script.google.com/macros/s/{GAS_CHECKIN_SCRIPT_ID}/exec?class={encoded_class}&name={encoded_name}"
+    print(f"[HTTP] 送出簽到請求: [{class_name}] {student_name} -> {url}...")
 
     oled.fill(0)
     oled.rect(0, 0, 128, 64, 1)
@@ -240,26 +280,22 @@ def show_checkin_result(data, student_name):
     if data and data.get("status") == "success":
         is_dup = data.get("is_duplicate", False)
         if is_dup:
-            # 今日已簽到
             draw_string_cn(oled, "已經簽到", 32, 14)
             draw_string_cn(oled, student_name, 40, 36)
             oled.show()
             beep_click()
             time.sleep(2)
         else:
-            # 簽到成功
             draw_string_cn(oled, "簽到成功", 32, 14)
             draw_string_cn(oled, student_name, 40, 36)
             oled.show()
-            
-            # 螢幕反白歡慶閃爍
+
             oled.invert(1)
             beep_success()
             time.sleep(0.3)
             oled.invert(0)
             time.sleep(2)
     else:
-        # 雲端異常但記錄本地成功
         draw_string_cn(oled, "出席確認", 32, 14)
         draw_string_cn(oled, student_name, 40, 36)
         oled.show()
@@ -267,53 +303,112 @@ def show_checkin_result(data, student_name):
         time.sleep(2)
 
 # -------------------------------------------------------------
+# 班級選擇導引流程 (開機選單)
+# -------------------------------------------------------------
+def select_class_flow(class_names):
+    """開機選班級流程"""
+    cur_cls_idx = 0
+    total = len(class_names)
+    render_select_class_screen(class_names[cur_cls_idx], cur_cls_idx, total)
+
+    while True:
+        # 左鍵：切換班級
+        if btn_select.value() == 0:
+            time.sleep(0.04)
+            if btn_select.value() == 0:
+                beep_click()
+                cur_cls_idx = (cur_cls_idx + 1) % total
+                render_select_class_screen(class_names[cur_cls_idx], cur_cls_idx, total)
+                while btn_select.value() == 0:
+                    time.sleep(0.04)
+                time.sleep(0.12)
+
+        # 右鍵：確認選定該班級
+        if btn_confirm.value() == 0:
+            time.sleep(0.04)
+            if btn_confirm.value() == 0:
+                beep_class_switch()
+                while btn_confirm.value() == 0:
+                    time.sleep(0.04)
+                return cur_cls_idx
+
+        time.sleep(0.04)
+
+# -------------------------------------------------------------
 # 主程式
 # -------------------------------------------------------------
 def main():
-    print("[System] 上課簽到機 v2.0 (中文掌機版) 啟動...")
+    print("[System] 上課簽到機 v3.0 (雙班級管理版) 啟動...")
     beep_click()
-    show_status_screen("學生簽到機", "Booting...")
+    show_status_screen("上課簽到機", "Dual-Class Ready")
     time.sleep(1)
 
-    # Wi-Fi 自動連線
     connect_wifi()
 
-    current_index = 0
-    total_students = len(STUDENT_LIST)
-    if total_students == 0:
-        STUDENT_LIST.append("學生A")
-        total_students = 1
+    class_names = list(CLASSES.keys())
+    if not class_names:
+        class_names = ["預設班級"]
+        CLASSES["預設班級"] = ["學生A"]
 
-    render_select_screen(STUDENT_LIST[current_index], current_index, total_students)
+    # 步驟 1: 開機先選擇班級
+    current_class_idx = select_class_flow(class_names)
+    current_class = class_names[current_class_idx]
+    students = CLASSES[current_class]
+    current_student_idx = 0
+
+    render_student_screen(current_class, students[current_student_idx], current_student_idx, len(students))
 
     while True:
-        # [按鈕 A：GPIO 18 左鍵] 切換學生名字
+        # [按鈕 A：GPIO 18 左鍵]
+        # 短按：切換學生名字
+        # 長按 (> 1.6 秒)：切換班級 (跳回選班級或直接輪切班級)
         if btn_select.value() == 0:
-            time.sleep(0.04)  # 防彈跳
+            press_start = time.time()
+            time.sleep(0.04)
             if btn_select.value() == 0:
-                beep_click()
-                current_index = (current_index + 1) % total_students
-                student = STUDENT_LIST[current_index]
-                print(f"[Select] 切換學生 [{current_index + 1}/{total_students}]: {student}")
-                render_select_screen(student, current_index, total_students)
+                # 偵測長按
+                is_long_press = False
                 while btn_select.value() == 0:
-                    time.sleep(0.04)
+                    if time.time() - press_start > 1.6:
+                        is_long_press = True
+                        break
+                    time.sleep(0.05)
+
+                if is_long_press:
+                    # 長按觸發：切換班級！
+                    beep_class_switch()
+                    current_class_idx = (current_class_idx + 1) % len(class_names)
+                    current_class = class_names[current_class_idx]
+                    students = CLASSES[current_class]
+                    current_student_idx = 0
+                    print(f"[Class] 切換至班級: {current_class}")
+                    show_status_screen("切換班級", current_class)
+                    time.sleep(1.2)
+                    render_student_screen(current_class, students[current_student_idx], current_student_idx, len(students))
+                    while btn_select.value() == 0:
+                        time.sleep(0.05)
+                else:
+                    # 短按：切換下一個學生
+                    beep_click()
+                    current_student_idx = (current_student_idx + 1) % len(students)
+                    render_student_screen(current_class, students[current_student_idx], current_student_idx, len(students))
+
                 time.sleep(0.12)
 
         # [按鈕 B：GPIO 4 右鍵] 確認簽到
         if btn_confirm.value() == 0:
             time.sleep(0.04)
             if btn_confirm.value() == 0:
-                selected_name = STUDENT_LIST[current_index]
-                print(f"[Confirm] 確認簽到: {selected_name}")
+                selected_name = students[current_student_idx]
+                print(f"[Confirm] 班級 [{current_class}] 簽到: {selected_name}")
 
-                # 送出雲端打卡
-                result_data = submit_checkin(selected_name)
+                # 送出雲端打卡 (帶班級名稱)
+                result_data = submit_checkin(current_class, selected_name)
                 show_checkin_result(result_data, selected_name)
 
                 # 簽到完成自動跳下一位同學
-                current_index = (current_index + 1) % total_students
-                render_select_screen(STUDENT_LIST[current_index], current_index, total_students)
+                current_student_idx = (current_student_idx + 1) % len(students)
+                render_student_screen(current_class, students[current_student_idx], current_student_idx, len(students))
 
                 while btn_confirm.value() == 0:
                     time.sleep(0.04)
