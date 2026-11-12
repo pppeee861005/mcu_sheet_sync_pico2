@@ -9,7 +9,10 @@
 
 import time
 import network
-import urequests
+import socket
+import ssl
+import json
+import gc
 from machine import Pin, I2C
 import ssd1306
 from fonts_cn import draw_char_16x16, draw_string_cn
@@ -157,8 +160,52 @@ def connect_wifi():
     return False
 
 # -------------------------------------------------------------
-# 雲端簽到同步 (Google Apps Script API)
+# 雲端簽到同步 (強健型 SSL Socket 客戶端，徹底杜絕連線 EBUSY / 洩漏)
 # -------------------------------------------------------------
+def fetch_gas_request(url):
+    """底層安全連線函式，具備 302 重導向追蹤與即時 Socket 關閉"""
+    gc.collect()
+    time.sleep(0.15)
+    proto, dummy, host, path = url.split('/', 3)
+    port = 443
+    ai = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
+    addr = ai[0][-1]
+
+    s = socket.socket()
+    s.settimeout(15.0)
+    try:
+        s.connect(addr)
+        s = ssl.wrap_socket(s, server_hostname=host)
+        req = 'GET /' + path + ' HTTP/1.0\r\nHost: ' + host + '\r\nUser-Agent: ESP32-Attendance\r\nConnection: close\r\n\r\n'
+        s.write(req.encode())
+
+        response = b''
+        while True:
+            chunk = s.read(512)
+            if not chunk:
+                break
+            response += chunk
+        s.close()
+        gc.collect()
+
+        lines = response.split(b'\r\n')
+        status_line = lines[0].decode()
+        if '302' in status_line:
+            for line in lines:
+                if line.lower().startswith(b'location:'):
+                    loc = line.split(b':', 1)[1].strip().decode()
+                    return fetch_gas_request(loc)
+
+        body = response.split(b'\r\n\r\n', 1)[1]
+        return json.loads(body.decode())
+    except Exception as e:
+        try:
+            s.close()
+        except Exception:
+            pass
+        gc.collect()
+        raise e
+
 def submit_checkin(student_name):
     """發送 HTTP GET 請求向雲端 Google 試算表記錄簽到"""
     # URL 編碼 UTF-8
@@ -172,19 +219,15 @@ def submit_checkin(student_name):
     oled.fill(0)
     oled.rect(0, 0, 128, 64, 1)
     draw_string_cn(oled, "簽到中", 40, 14)
-    draw_string_cn(oled, student_name, 40, 34)
+    if len(student_name) >= 5:
+        draw_string_cn(oled, student_name, 16, 34)
+    else:
+        draw_string_cn(oled, student_name, 40, 34)
     oled.show()
 
     try:
-        res = urequests.get(url)
-        if res.status_code == 200:
-            data = res.json()
-            res.close()
-            return data
-        else:
-            print(f"[HTTP] 伺服器異常碼: {res.status_code}")
-            res.close()
-            return None
+        data = fetch_gas_request(url)
+        return data
     except Exception as e:
         print(f"[HTTP] 網路請求異常: {e}")
         return None
