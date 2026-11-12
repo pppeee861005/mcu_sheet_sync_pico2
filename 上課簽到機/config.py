@@ -9,9 +9,9 @@ WIFI_NETWORKS = [
 # Google Apps Script 簽到表記錄端點 ID
 GAS_CHECKIN_SCRIPT_ID = "AKfycbxsDRli36NtvJZlqIglqQKhy5ooRH1GtL_dt253pu9hJ5Trv_AMMjIrBMMD40Eo5UKC"
 
-# 課程：263241 Python (講師 賴建安(Tony Lai) 加上 23 位同學，共 24 位)
+# 課程：263241 Python (講師 賴建安 加上 23 位同學，共 24 位)
 STUDENT_LIST = [
-    "講師 賴建安(Tony Lai)",
+    "講師 賴建安",
     "繆志煜",
     "張元俊",
     "黃學豪",
